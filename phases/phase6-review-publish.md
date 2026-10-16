@@ -6,7 +6,13 @@
 >
 > **接收自**:`{run_dir}/nodes/node-*.md`(五块)+ `{run_dir}/assembly/assembly.json` + `{run_dir}/{company}-analysis-{date}.md`
 > **输出**:`*.html` + `{run_dir}/phase6-review-log.md` + GitHub Pages(leafpaper/Inves-Report)
-> **质量环规模**:机器门控 10 条(`lint_v8`)+ 2 个 LLM reviewer 并行 + fresh-restart 修正循环(3 轮上限)
+> **质量环规模**:机器门控(`lint_v8`)+ 2 个 LLM reviewer 并行 + 修正 agent 落地 FIX + **PASS 线 = 判断类 FIX 归零**
+> (表述类只落地不重审;3 轮上限)+ 终检(HTML 走查一次)。
+>
+> **v8.11 为什么这样改(成本账)**:金山办公一份报告 ≈ $74,其中主会话 $43、子代理 $31;子代理 25 个里 19 个是评审与修正。
+> 三份报告 Round 3 全部仍 FAIL —— reviewer 每轮都还挑得出表述项,按「双 PASS」判定永远收敛不了,「3 轮上限」实际是必跑 3 轮。
+> 主 agent 自己 Edit 了 21 次节点正文,每次都在几十万 token 的上下文上叠一轮。
+> 改法只动编排:**主 agent 不动手、表述类不重审、HTML 只在终检读一次**;reviewer 读什么一个字没减(附录C 技术面越权那条就是从装配后的报告里抓出来的)。
 >
 > **v7 → v8 变了什么**:9 章节骨架比对 / 章节字数下限 / artifact 覆盖率 / 20 项 LLM 清单 / 3 个 reviewer
 > 全部删除——它们校验的是「四套机制互抄一致」和「写够字数」,v8 把复述层删了、把长度改成上限,
@@ -18,8 +24,8 @@
 
 你有两个身份:
 
-**身份 A — 质量环调度员**:跑机器门控、派两个 reviewer、按 FIX 分诊结果决定「重启写手」还是「自己改措辞」。
-你**不改判断**——YAML 块永远只有写手能动。
+**身份 A — 质量环调度员**:跑机器门控、派两个 reviewer、按 FIX 分诊结果派修正 agent。
+你**不改判断、也不改措辞**——节点 md(YAML 块与正文)永远只有写手能动;你唯一亲手改的是 `assets/html/` 模板与脚本(那是 skill 代码)。
 
 **身份 B — 发布经理**:把过关的报告出成 v8 仪表盘 HTML,推到 GitHub Pages,更新主页卡片。
 
@@ -78,12 +84,12 @@
 |---|---|
 | R1 / R2(🔴 未归家)/ R5 / R7 | **判断问题** → fresh-restart 对应写手(prompt 注入 lint 报错原文);主 agent 不许手改 YAML 块 |
 | R2(Top3 漂移 / 清单不一致)/ R10 | 重跑 `assemble_report_v8`——十有八九是改了节点却忘了重装配 |
-| R3 / R6 / R8 / R9 | 多半是措辞 → 主 agent 用 Edit 改**节点 md 正文**,改完重跑装配 |
+| R3 / R6 / R8 / R9 | 多半是措辞 → **按节点分组、并行派修正 agent**(scope=仅表述,prompt 粘 lint 报错原文),改完重跑装配。主 agent 不 Edit 节点 md |
 | R4 warn | 看能不能把表格/时序下沉附录;下沉不了就留着,不阻断 |
 | R13 / R15 / R16 | 上游节点改了、下游抄本没跟上 → SendMessage 让下游写手**照节点文件**重抄(YAML 也归写手改),然后重装配 |
 | R18 | 重出红旗清单后让引不到 id 的写手补面板:`python -m scripts.red_flags --audit-json {artifacts_dir}/audit_report.json --out {artifacts_dir}/red_flags.json`(重跑过 `financial_audit` 就要跟着跑这一条) |
 
-### Step 1: 两个 reviewer 并行
+### Step 1: 两个 reviewer 并行(循环轮只审 md,不出片、不读 HTML)
 
 ```python
 Agent(subagent_type="reviewer-logic", run_in_background=True, description="维度1 判断链逻辑",
@@ -92,17 +98,20 @@ run_dir     = {run_dir}
 artifacts_dir = {artifacts_dir}
 report_path = {run_dir}/{company}-analysis-{date}.md
 lint_v8 已全绿(schema/红旗闭环/数字home/合理价区间/封顶/越权/外链/同步都查过了),别重复机器规则。
-按 agents/reviewer-logic.md 的 5 项检查出判定与 FIX,响应只回评审结论,不要回放文件内容。""")
+{round ≥ 2 时:上轮 FIX 列表在 {run_dir}/reviewer_responses/round_{round-1}_merged_fix.md,已应用;先逐条核销,再全文过一遍。}
+按 agents/reviewer-logic.md 的 5 项检查出判定与 FIX。判定只由判断类 FIX 决定;表述类照列,不算 FAIL。
+响应只回评审结论,不要回放文件内容。""")
 
 Agent(subagent_type="reviewer-delivery", run_in_background=True, description="维度2 可读性与交付",
-      prompt=f"""评审可读性与交付(第 {round} 轮)。run_dir / artifacts_dir / report_path 同上;
-html_path = {run_dir}/{company}-analysis-{date}.html
-按 agents/reviewer-delivery.md 的三组检查(结论先行 / 全说人话 / 390px 走查清单)出判定与 FIX。""")
+      prompt=f"""评审可读性与交付(第 {round} 轮,循环轮模式:只审 md,本轮没有 HTML)。run_dir / artifacts_dir / report_path 同上。
+{round ≥ 2 时:上轮 FIX 已应用,列表同上;先核销再过一遍。}
+按 agents/reviewer-delivery.md 的 2.1 结论先行 + 2.2 全说人话出判定与 FIX;2.3 走查清单留给终检。
+判定只由判断类 FIX(含 front)决定;表述类照列,不算 FAIL。""")
 ```
 
 两个都 `run_in_background=True`,等系统的 task-notification 收齐两份响应。
-**Round 1 的 HTML**:Part B 的出片脚本自带 lint 门控,可以先跑一次 `build_html` 给 reviewer-delivery 看
-(出片不等于发布);也可以让它只审 md,第一轮 FIX 修完再出片——两种都行,但 prompt 里要说清 `html_path` 有没有。
+**循环轮不出片**:HTML 只在 Step 4 终检时出一次、读一次(版式走查不随文字修改变化,每轮都读是纯浪费;
+金山办公实测 reviewer 在循环里分页读了 10 万字 HTML,没有一条 FIX 是 md 里看不出来的)。
 
 **收到响应后**:两份原文 Write 到
 
@@ -124,32 +133,57 @@ html_path = {run_dir}/{company}-analysis-{date}.html
 ```json
 {
   "overall_pass": false,
+  "needs_new_round": true,
+  "next_step": "落地全部 FIX → 重装配 + lint → Round+1",
   "judgments": {"logic": "FAIL", "delivery": "FAIL"},
   "fix_count": 4,
-  "fix_by_node": {"odds": 1, "state": 2, "delivery": 1},
+  "fix_by_node": {"odds": 1, "state": 1, "front": 1, "delivery": 1},
   "fix_by_kind": {"判断": 2, "表述": 2},
-  "restart_writers": ["node-odds", "decision-writer"],
-  "edit_targets": ["nodes/node-state.md"],
+  "judgment_fixes": 2,
+  "restart_writers": ["node-odds", "node-state", "decision-writer"],
+  "restart_scope": {"node-odds": "判断+表述", "node-state": "仅表述", "decision-writer": "判断+表述"},
   "delivery_fixes": 1,
   "fix_list_path": "…/round_1_merged_fix.md",
   "diff_repeat": false
 }
 ```
 
+**PASS 线 = `judgment_fixes == 0`**(判断类 + front 归零)。reviewer 自报的 PASS/FAIL 只留档,不当判定用;
+表述类 FIX 照单落地,但**不触发新一轮**。两种情况 fail-closed 不放行:判定认不出(UNKNOWN)、reviewer 说 FAIL 却一条可解析 FIX 都没给。
+
 | JSON | 主 agent 的动作 |
 |---|---|
-| `overall_pass: true` | → Part B 出片 |
 | `diff_repeat: true` | → **转人工**(两轮之间节点 md 一个字没变 = 改回原状的对抗) |
-| `round == 3` 仍 FAIL | → **转人工**,附累计 FIX |
-| 否则 | → Step 3 应用 FIX,Round+1 |
+| `overall_pass: true` | → Step 3 落地表述类 FIX(若有)→ 重装配 + lint → **Step 4 终检** |
+| `needs_new_round: true` 且 `round < 3` | → Step 3 落地全部 FIX → 重装配 + lint → Round+1 |
+| `needs_new_round: true` 且 `round == 3` | → **转人工**,附累计 FIX |
 
-### Step 3: 修正循环(fresh-restart,3 轮上限)
+`next_step` 字段已把上表算好,照它走。
 
-1. **判断类 FIX**(`restart_writers` 非空)→ 用 Agent 重启对应写手,prompt 注入:任务描述 + `{run_dir}`/`{artifacts_dir}` +
-   本轮 FIX 原文 + 「这是重跑,只看当前文件状态」。**主 agent 不改 YAML 块**。
-2. **表述类 FIX**(`edit_targets` 非空)→ 主 agent 用 Edit 改对应节点 md 的**正文**(不碰顶部 YAML 块)。
-3. **交付类 FIX**(`delivery_fixes > 0`)→ 改 `assets/html/report-v8.{html,css}` 或渲染逻辑,不惊动写手。
-4. **重跑两条命令,缺一不可**:
+### Step 3: 落地 FIX(修正 agent,主 agent 不动手)
+
+**为什么主 agent 不亲自改**:主会话上下文是修正 agent 的十倍(金山实测平均 25 万 vs 2-5 万 token),
+同一处措辞改动由主 agent 做贵十倍,而且它改的越多、后面每一次调用越贵。
+修正 agent 拿到的信息**一个字不少于主 agent 手改时手里的**:FIX 原文、两份 reviewer 响应全文路径、lint 报错原文全在文件里,
+prompt 里点名即可。
+
+1. **`restart_writers` 里每个写手各派一个修正 agent,全部并行 `run_in_background=True`**,prompt 模板:
+
+   ```python
+   Agent(subagent_type="{agent}", run_in_background=True, description="修正 {节点}",
+         prompt=f"""修正{节点}节点(第 {round} 轮 FIX,这是重跑:只看当前文件状态,不要假设你记得任何上下文)。
+   run_dir = {run_dir} · artifacts_dir = {artifacts_dir} · PYBIN = {PYBIN}
+   scope = {restart_scope[agent]}   ← 「仅表述」= 只改正文,顶部 YAML 块一个字不动;「判断+表述」= YAML 与正文都可改
+   本轮开给你的 FIX(原文):
+   {该节点在 round_{round}_merged_fix.md 里的那几行}
+   reviewer 完整理由见 {run_dir}/reviewer_responses/round_{round}_logic.md 与 round_{round}_delivery.md(只读与你相关的段)。
+   改完自跑 {PYBIN} -m scripts.verdict_block --schema {schema} --file {run_dir}/nodes/node-{node}.md,退出 0 才算完。
+   完成报告只回:判定 / 改了哪几条 FIX / 没改的说明为什么。""")
+   ```
+
+   lint 措辞类(R3 / R6 / R8 / R9)报红也走同一模板,把 lint 报错原文粘进 FIX 位置。
+2. **交付类 FIX**(`delivery_fixes > 0`)→ 主 agent 改 `assets/html/report-v8.{html,css}` 或渲染逻辑(skill 代码,不是报告内容),不惊动写手。
+3. **每个修正 agent 回来后主 agent 复核** `verdict_block` 退出码(不信自证),然后**重跑两条命令,缺一不可**:
 
    ```
    {PYBIN} -m scripts.assemble_report_v8 --run-dir {run_dir} --company {company} --date {date} \
@@ -157,9 +191,29 @@ html_path = {run_dir}/{company}-analysis-{date}.html
    {PYBIN} -m scripts.lint_v8 --run-dir {run_dir} --artifacts-dir {artifacts_dir}
    ```
 
-5. Round+1:重新并行启动两个 reviewer(fresh-restart,prompt 注明「上轮 FIX 已应用」)。
+4. 按 `next_step`:有判断类 → Round+1(重新并行两个 reviewer,prompt 注明「上轮 FIX 已应用」);
+   没有 → Step 4 终检。
 
-每轮写一行 `main-log.md`:`- {ts} reviewer Round N 综合判定 <PASS/FAIL>,FIX 数 M`。
+每轮写一行 `main-log.md`:`- {ts} reviewer Round N judgment_fixes=K / 表述 M,next={next_step}`。
+
+### Step 4: 终检(HTML 走查一次,不进循环)
+
+质量环收敛(`overall_pass`)且最后一批 FIX 已落地、lint 全绿之后:
+
+1. 出片:`{PYBIN} -m scripts.build_html --company {company} --run-dir {run_dir}`(退出 0)。
+2. 派**一个** reviewer-delivery,终检模式:
+
+   ```python
+   Agent(subagent_type="reviewer-delivery", run_in_background=False, description="终检 HTML 走查",
+         prompt=f"""终检模式(不是循环轮)。run_dir / artifacts_dir / report_path 同前;
+   html_path = {run_dir}/{company}-analysis-{date}.html
+   只做 agents/reviewer-delivery.md 的 2.3 走查清单 + 2.2f 形状复核;不再评判断、不开判断类 FIX。
+   只允许开 [FIX-delivery-表述] 与 [FIX-{node}-表述]。响应写到 {run_dir}/reviewer_responses/final_delivery.md 的格式。""")
+   ```
+
+3. 响应落 `{run_dir}/reviewer_responses/final_delivery.md`。有 FIX → 按 Step 3 落地(表述类派修正 agent、交付类主 agent 改模板)
+   → 重装配 + lint → 重新 `build_html`。**终检只跑一次**,落地后不再派 reviewer(lint 与 build_html 自检兜底)。
+4. → Part B / Part C。
 
 ---
 
@@ -263,10 +317,11 @@ Windows 如 `C:\Inves-Report`);下面写法为 Mac/Linux,Windows 把 `mkdir -p`�
 | 修正后 | 0 | — | R2w 🟠 归家 ×2 |
 
 ## reviewer 往返
-| 轮次 | logic | delivery | FIX 数 | 重启写手 | 主 agent 改正文 |
-|:-:|:-:|:-:|:-:|---|---|
-| 1 | FAIL | FAIL | 4 | node-odds, decision-writer | nodes/node-state.md |
-| 2 | PASS | PASS | 0 | — | — |
+| 轮次 | logic | delivery | 判断类 | 表述类 | 修正 agent(scope) | next_step |
+|:-:|:-:|:-:|:-:|:-:|---|---|
+| 1 | FAIL | FAIL | 2 | 2 | node-odds(判断+表述), node-state(仅表述), decision-writer(判断+表述) | Round+1 |
+| 2 | FAIL | FAIL | 0 | 3 | node-path(仅表述) | 终检 |
+| 终检 | — | 1 条 delivery | 0 | 1 | 主 agent 改模板 | 出片 |
 
 ## 交付
 **HTML:** ✅(决断卡 5 / Top3 3 / 五章 + 附录A-E)
@@ -279,9 +334,10 @@ Windows 如 `C:\Inves-Report`);下面写法为 Mac/Linux,Windows 把 `mkdir -p`�
 ## 质检清单
 
 - [ ] `lint_v8` 退出码 0(fail 项全过);warn 项已在日志里记账
-- [ ] reviewer-logic 与 reviewer-delivery 都 PASS(或 3 轮上限已转人工并通知用户)
-- [ ] 每轮 reviewer 响应都落在 `{run_dir}/reviewer_responses/`,没有只存在 context 里的判定
-- [ ] 判断类 FIX 都由**写手 fresh-restart** 落地,YAML 块没有被主 agent 手改
+- [ ] `review_loop` 最后一轮 `overall_pass: true`(判断类 FIX 归零;或 3 轮上限已转人工并通知用户)
+- [ ] 每轮 reviewer 响应都落在 `{run_dir}/reviewer_responses/`,没有只存在 context 里的判定(金山 Round 3 就没落盘,`review_loop` 根本没跑)
+- [ ] 所有节点 FIX(判断类 + 表述类)都由**修正 agent** 落地,主 agent 没有 Edit 过任何节点 md
+- [ ] 终检跑过一次:`final_delivery.md` 在,HTML 是终检 FIX 落地后重出的
 - [ ] 每次 FIX 应用后都重跑了「装配 + lint」两条命令
 - [ ] `build_html` 退出 0 且成品自检无缺项
 - [ ] 主页卡片字段(行动档位 / 质地 / 下次预约披露日)已随 `update_index` 更新

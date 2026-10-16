@@ -112,8 +112,9 @@ output/_compare/{slug}/          对比组(票 10, 不属于任何一家公司)
 |:-:|---|---|---|
 | 0 | 主 agent | `{PYBIN} -m scripts.lint_v8 --run-dir {run_dir} --artifacts-dir {artifacts_dir}` | 退出 0(fail 项全过;warn 记账不阻断) |
 | 1 | reviewer-logic ∥ reviewer-delivery(2 个 `run_in_background=True`) | Agent 工具 | 两份响应落 `{run_dir}/reviewer_responses/round_{N}_{logic,delivery}.md` |
-| 2 | 主 agent | `{PYBIN} -m scripts.review_loop --run-dir {run_dir} --round {N}` | 读 JSON:`overall_pass` / `diff_repeat` / `restart_writers` / `edit_targets` |
-| 3 | 写手 fresh-restart(判断类)+ 主 agent Edit(表述类) | Agent / Edit | 改完**必须**重跑 `assemble_report_v8` + `lint_v8` |
+| 2 | 主 agent | `{PYBIN} -m scripts.review_loop --run-dir {run_dir} --round {N}` | 读 JSON:`overall_pass` / `needs_new_round` / `next_step` / `restart_writers` / `restart_scope` |
+| 3 | 修正 agent(判断类 + 表述类都派写手,并行)+ 主 agent 只改 HTML 模板 | Agent | 改完**必须**重跑 `assemble_report_v8` + `lint_v8`;主 agent 不 Edit 节点 md |
+| 4 | reviewer-delivery 终检模式(1 个,HTML 走查一次) | `build_html` → Agent | `final_delivery.md` 落盘;FIX 落地后重出片 |
 | B | 主 agent | `{PYBIN} -m scripts.build_html --company {company} --run-dir {run_dir}` | 退出 0(脚本内置再跑一次 lint,fail 阻断) |
 | C | 主 agent | `{PYBIN} -m scripts.update_index --company {company} --repo $INVES_REPORT_DIR --force` + git push | 卡片 + `data/reports.json` 已更新 |
 
@@ -122,8 +123,9 @@ output/_compare/{slug}/          对比组(票 10, 不属于任何一家公司)
 1. **机器先于人**:`lint_v8` 没过就不派 reviewer——确定性规则挡得住的错,不花 LLM 的注意力。
 2. **两个 reviewer 并行**,不是串行;判定与 FIX 一律落文件,不靠 context 记忆。
 3. **FIX 落点 = 节点 md**(`{run_dir}/nodes/node-{node}.md`),不是已删除的 `phase3-partN.md`:
-   判断类 → fresh-restart 写手(主 agent **不改 YAML 块**);表述类 → 主 agent 改正文;交付类 → 改 HTML 模板。
-4. **3 轮上限 + diff 对抗检测**:`diff_repeat=true`(两轮之间节点 md 一个字没变)或 round 3 仍 FAIL → 转人工。
+   判断类与表述类**都派修正 agent**(`restart_scope` 定能不能动 YAML);主 agent **不 Edit 节点 md**;交付类 → 主 agent 改 HTML 模板。
+4. **PASS 线 = 判断类 FIX 归零**;表述类只落地不重审。**3 轮上限 + diff 对抗检测**:`diff_repeat=true` 或 round 3 仍有判断类 → 转人工。
+   循环轮 reviewer 只审 md;HTML 在终检读一次。
 5. 每轮写一行 `main-log.md`(`- {ts} reviewer Round N 综合判定 …,FIX 数 M`)。
 
 ---

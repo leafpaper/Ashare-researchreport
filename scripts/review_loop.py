@@ -9,10 +9,16 @@
          {run_dir}/reviewer_responses/round_{N}_delivery.md
     4. 跑本脚本:
          {PYBIN} -m scripts.review_loop --run-dir {run_dir} --round N
-    5. 读它的 JSON 决定下一步:
-         overall_pass=true  → Part B 出片发布
-         diff_repeat=true   → 转人工(两轮改回原状 = 对抗)
-         否则               → 按 restart_writers / edit_targets 应用 FIX,重跑装配 + lint,Round+1
+    5. 读它的 JSON 决定下一步(v8.11 PASS 线):
+         diff_repeat=true        → 转人工(两轮改回原状 = 对抗)
+         overall_pass=true       → 表述类 FIX(若有)派修正 agent 落地 → 重装配 + lint → 终检(HTML 走查一次)→ Part B
+         needs_new_round=true    → 全部 FIX 派修正 agent 落地 → 重装配 + lint → Round+1(3 轮上限, 仍有判断类 → 转人工)
+
+    **PASS 线(v8.11)**:判定不再看 reviewer 自报的 PASS/FAIL, 看 FIX 的种类——
+    **判断类 FIX = 0 且 front = 0 即 PASS**。表述类 FIX 照单全收、照样落地, 但不再触发新一轮 reviewer:
+    措辞改动改不出跨节点矛盾, 改出来的结构问题(R3/R10/R15/R16)lint 会抓。
+    金山办公实测:三轮 reviewer 每轮都还能挑出表述项, 按「双 PASS」判定质量环永远收敛不了,
+    第 3 轮实际是必跑轮; 三份报告 Round 3 全 FAIL 转人工, 「上限」形同虚设。
 
 **FIX 行格式**(reviewer 必须照写,本脚本按它分诊):
 
@@ -26,9 +32,11 @@
 | kind | 落点 | 谁动手 |
 |---|---|---|
 | 判断 | 该节点的 YAML 块与正文 | **fresh-restart 对应写手**(主 agent 不许手改 YAML 块) |
-| 表述 | 该节点 md 的正文 | 主 agent 用 Edit 改措辞 |
+| 表述 | 该节点 md 的正文 | **同样派对应写手**(scope=仅表述:只改正文不动 YAML)。主 agent 不再用 Edit 手改 —— 它的上下文是写手的十倍, 每次 Edit 都在几十万 token 上叠一轮 |
 | node=front | 决策块的 `front_page_intro` | fresh-restart decision-writer(那是 YAML 字段) |
-| node=delivery | HTML 模板 / 渲染 | 主 agent 改 `assets/html/` 或重跑 build_html,不惊动写手 |
+| node=delivery | HTML 模板 / 渲染 | 主 agent 改 `assets/html/` 或重跑 build_html,不惊动写手(这是 skill 代码, 不是报告内容) |
+
+`restart_scope` 告诉主 agent 每个写手这次的权限:`判断+表述`(可动 YAML)/ `仅表述`(只动正文)。
 
 两类 FIX 应用完都必须**重跑 `assemble_report_v8` + `lint_v8`**——报告是装配产物,改了节点不重装
 = 报告与节点脱节(lint R10 会当场抓到)。
@@ -112,7 +120,9 @@ def triage(fixes: list[str]) -> dict:
         by_node[m.group("node")].append(fix)
         by_kind[m.group("kind")].append(fix)
 
-    restart, edits = [], []
+    restart: list[str] = []
+    scope: dict[str, str] = {}
+    judgment_fixes = 0
     for fix in fixes:
         m = FIX_RE.match(fix)
         if not m:
@@ -120,19 +130,20 @@ def triage(fixes: list[str]) -> dict:
         node, kind = m.group("node"), m.group("kind")
         if node == "delivery":
             continue                          # 交付类不惊动写手: 主 agent 改模板 / 重跑 build_html
+        agent = NODE_AGENTS[node]
+        if agent not in restart:
+            restart.append(agent)
         if kind == "判断" or node == "front":  # front_page_intro 在 YAML 块里, 只能写手改
-            agent = NODE_AGENTS[node]
-            if agent not in restart:
-                restart.append(agent)
+            judgment_fixes += 1
+            scope[agent] = "判断+表述"
         else:
-            target = f"nodes/node-{node}.md"
-            if target not in edits:
-                edits.append(target)
+            scope.setdefault(agent, "仅表述")
     return {
         "by_node": by_node,
         "by_kind": by_kind,
         "restart_writers": restart,
-        "edit_targets": edits,
+        "restart_scope": scope,
+        "judgment_fixes": judgment_fixes,      # 判断类 + front, 决定要不要新一轮
     }
 
 
@@ -185,32 +196,33 @@ def write_merged_fix_md(fixes: list[str], plan: dict, out_path: Path, round_n: i
         "",
         "## 应用步骤",
         "",
-        "1. **判断类 FIX**(改 verdict / 子判定 / 提名 / 首页导读)→ fresh-restart 对应写手,"
-        "prompt 注入本轮 FIX 原文 + 「只看当前文件状态」;主 agent **不手改 YAML 块**。",
+        "1. **判断类 + 表述类 FIX 都派修正 agent**(同 subagent_type 的写手 fresh-restart, 全部并行 `run_in_background=True`):"
+        "prompt 注入该节点本轮 FIX 原文 + 两份 reviewer 响应路径 + 「只看当前文件状态」;"
+        "**主 agent 不手改节点 md**(YAML 块与正文都不改)。",
     ]
-    if plan["restart_writers"]:
-        lines.append(f"   - 本轮要重启:{', '.join(plan['restart_writers'])}")
-    lines.append(
-        "2. **表述类 FIX**(措辞 / 结论先行 / 人话)→ 主 agent 用 Edit 改对应节点 md 的**正文**。"
-    )
-    if plan["edit_targets"]:
-        lines.append(f"   - 本轮要改:{', '.join(plan['edit_targets'])}")
+    for agent in plan["restart_writers"]:
+        lines.append(f"   - {agent}:scope = {plan['restart_scope'][agent]}"
+                     + ("(可改 YAML 块与正文)" if plan["restart_scope"][agent] == "判断+表述"
+                        else "(只改正文, YAML 块一个字不动)"))
     if plan["by_node"]["delivery"]:
         lines.append(
-            "3. **交付类 FIX**(版式 / 移动端 / 主题)→ 改 `assets/html/report-v8.{html,css}` "
+            "2. **交付类 FIX**(版式 / 移动端 / 主题)→ 主 agent 改 `assets/html/report-v8.{html,css}` "
             "或 build_html 渲染,不惊动写手。"
         )
     lines += [
         "",
-        "4. 全部 FIX 应用后按顺序重跑(缺一不可):",
+        "3. 全部 FIX 应用后按顺序重跑(缺一不可):",
         "",
         "   ```",
         "   {PYBIN} -m scripts.assemble_report_v8 --run-dir {run_dir} --company {company} --date {date} …",
         "   {PYBIN} -m scripts.lint_v8 --run-dir {run_dir}",
         "   ```",
         "",
-        "5. Round+1:重新并行启动两个 reviewer(fresh-restart,prompt 注明本轮 FIX 已应用)。",
     ]
+    if plan["judgment_fixes"]:
+        lines.append("4. 本轮有判断类 FIX → Round+1:重新并行启动两个 reviewer(fresh-restart,prompt 注明本轮 FIX 已应用)。")
+    else:
+        lines.append("4. 本轮只有表述类 FIX → **不开新一轮 reviewer**,直接进终检(build_html → reviewer-delivery 终检模式一次)。")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -244,17 +256,38 @@ def run(run_dir: Path, round_n: int) -> dict:
     fix_md_path = resp_dir / f"round_{round_n}_merged_fix.md"
     write_merged_fix_md(merged, plan, fix_md_path, round_n)
 
+    # PASS 线(v8.11):看 FIX 种类, 不看 reviewer 自报的 PASS/FAIL。
+    # fail-closed 两种情况仍不放行:判定认不出(UNKNOWN);reviewer 说 FAIL 却一条可解析 FIX 都没给。
+    unknown = any(j == "UNKNOWN" for j in judgments.values())
+    fail_without_fix = any(j == "FAIL" for j in judgments.values()) and not merged
+    needs_new_round = plan["judgment_fixes"] > 0
+    overall_pass = not unknown and not fail_without_fix and not needs_new_round
+    diff_repeat = prev_sig is not None and current_sig == prev_sig
+    if diff_repeat:
+        next_step = "转人工(diff_repeat)"
+    elif unknown or fail_without_fix:
+        next_step = "转人工(reviewer 响应不合 schema)"
+    elif overall_pass:
+        next_step = "落地表述类 FIX(若有)→ 重装配 + lint → 终检"
+    elif round_n >= 3:
+        next_step = "转人工(3 轮上限仍有判断类 FIX)"
+    else:
+        next_step = "落地全部 FIX → 重装配 + lint → Round+1"
+
     return {
-        "overall_pass": all(j == "PASS" for j in judgments.values()),
+        "overall_pass": overall_pass,
+        "needs_new_round": needs_new_round,
+        "next_step": next_step,
         "judgments": judgments,
         "fix_count": len(merged),
         "fix_by_node": {n: len(v) for n, v in plan["by_node"].items() if v},
         "fix_by_kind": {k: len(v) for k, v in plan["by_kind"].items()},
+        "judgment_fixes": plan["judgment_fixes"],
         "restart_writers": plan["restart_writers"],
-        "edit_targets": plan["edit_targets"],
+        "restart_scope": plan["restart_scope"],
         "delivery_fixes": len(plan["by_node"]["delivery"]),
         "fix_list_path": str(fix_md_path),
-        "diff_repeat": prev_sig is not None and current_sig == prev_sig,
+        "diff_repeat": diff_repeat,
         "diff_signature": current_sig,
         "round": round_n,
     }

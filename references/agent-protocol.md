@@ -63,7 +63,7 @@ verdict_block 校验通过后再回报。"""
 )
 ```
 
-**修正循环的落点(v8)**:reviewer 的 FIX 指向**节点 md**(`runs/{date}/nodes/node-{node}.md`),不是已删除的 `phase3-partN.md`。判断本身(YAML 块的 verdict / 子判定)由**写手 fresh-restart 改**,主 agent 不手改;纯文字表述类 FIX 才由主 agent 用 Edit 改正文。改完必须重跑 `assemble_report_v8` + `lint_v8`(lint 的 R10 专抓「改了节点没重装配」)。
+**修正循环的落点(v8)**:reviewer 的 FIX 指向**节点 md**(`runs/{date}/nodes/node-{node}.md`),不是已删除的 `phase3-partN.md`。判断类与表述类 FIX **都由写手 fresh-restart 改**(`restart_scope` 定能不能动 YAML);主 agent 不 Edit 节点 md(v8.11:主会话上下文是写手的十倍,同一处改动贵十倍)。改完必须重跑 `assemble_report_v8` + `lint_v8`(lint 的 R10 专抓「改了节点没重装配」)。
 
 ### 多花的 token 是值得的
 
@@ -132,15 +132,18 @@ Fresh-restart 每次重传完整任务描述 + 上轮 FIX(~500-2000 token),换�
 1. **机器先于人**:`{PYBIN} -m scripts.lint_v8 --run-dir {run_dir}` 退出 0 之后才派 reviewer
 2. **两个 reviewer 并行**(`reviewer-logic` ∥ `reviewer-delivery`,`run_in_background=True`),不是串行
 3. 主 agent **必须保存**每份响应到 `{run_dir}/reviewer_responses/round_{N}_{logic,delivery}.md`(不依赖 context)
-4. **判定 + FIX 分诊** 由 `scripts/review_loop.py` 处理,主 agent 只看它的 JSON(`overall_pass` /
-   `restart_writers` / `edit_targets` / `delivery_fixes` / `diff_repeat`)
-5. **FIX 应用**:`判断` 类 → fresh-restart 对应节点写手(主 agent **不改 YAML 块**);`表述` 类 → 主 agent 用
-   `Edit` 改节点 md 正文;`delivery` 落点 → 改 HTML 模板。三类改完都要**重跑装配 + 重跑 lint**
+4. **判定 + FIX 分诊** 由 `scripts/review_loop.py` 处理,主 agent 只看它的 JSON(`overall_pass` / `needs_new_round` /
+   `next_step` / `restart_writers` / `restart_scope` / `delivery_fixes` / `diff_repeat`)
+5. **FIX 应用(v8.11)**:`判断` 与 `表述` 两类**都派修正 agent**(同 subagent_type 的写手 fresh-restart,`restart_scope`
+   写明能不能动 YAML);主 agent **不 Edit 节点 md**(YAML 块与正文都不动);`delivery` 落点 → 主 agent 改 HTML 模板。
+   改完都要**重跑装配 + 重跑 lint**
 6. **diff signature 对抗检测**:Round N+1 的五个节点 md md5 拼接 == Round N → 自动转人工
+7. **PASS 线 = 判断类 FIX 归零**(含 front);表述类只落地不重审。循环轮 reviewer 只审 md;HTML 在终检读一次
 
 ### round 上限
 
-3 轮(初次 + 2 次重审)。round 3 仍 FAIL 或 diff_repeat → 转人工 + 输出累计 FIX。
+3 轮(初次 + 2 次重审)。round 3 仍有判断类 FIX 或 diff_repeat → 转人工 + 输出累计 FIX。
+只有表述类 FIX 的一轮**不计入**新一轮:落地 → lint → 终检 → 出片。
 
 ---
 
@@ -180,9 +183,10 @@ Fresh-restart 每次重传完整任务描述 + 上轮 FIX(~500-2000 token),换�
 ```
 
 `node` ∈ `quality` / `state` / `odds` / `path` / `decision` / `front`(首页导读)/ `delivery`(HTML 交付);
-`kind` ∈ `判断`(→ fresh-restart 写手)/ `表述`(→ 主 agent Edit 正文)。**这两个字段决定修正循环走哪条路**,
-写错了会把措辞问题送去重跑写手、把判断问题交给主 agent 手改。`review_loop.py` 按此正则解析并分诊
-(判定行 `^### 维度` 或 `^### 总体` 两种写法都认)。
+`kind` ∈ `判断`(→ 写手可动 YAML,**且触发新一轮 reviewer**)/ `表述`(→ 写手只动正文,不触发新一轮)。
+**这两个字段决定质量环要不要再跑一轮**,写错了会把措辞问题升级成一整轮重审、或把判断问题当措辞放行。
+`review_loop.py` 按此正则解析并分诊(判定行 `^### 维度` 或 `^### 总体` 两种写法都认);
+判定本身按 FIX 种类算(判断类归零 = PASS),reviewer 自报的 PASS/FAIL 只留档。
 
 ---
 

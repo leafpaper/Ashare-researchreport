@@ -4,6 +4,35 @@
 
 ---
 
+## [v8.11] — 2026-09-18 — 质量环省钱四条(只动编排,reviewer 读什么一字未减)
+
+**起因**:按会话转录 usage 去重加总(Opus 5),金山办公一份报告 ≈ $74:主会话 $43(286 次调用、平均每次 25 万 token 上下文,
+起跑 92 万 —— 那个会话开了三周)+ 子代理 $31(25 个里 19 个是评审与修正)。三份报告 Round 3 全部仍 FAIL:
+reviewer 每轮都还挑得出表述项,按「双 PASS」判定质量环永远收敛不了,「3 轮上限」形同必跑 3 轮。
+主 agent 亲自 Edit 了 21 次节点正文、跑了 212 次 Bash。
+
+**每条都先核过「会不会丢信息」**(用金山三轮六份 reviewer 记录逐条对):
+
+- **SKILL.md Step 0 ⓪ 干净会话检查(硬规则)**:有历史对话就让用户 `/clear` 后再跑;跑报告与改 skill 代码不同会话。
+  不丢任何东西——跨会话该留的经验在 `lessons-learned.md` 与手册里,不在 context 里。
+- **主 agent 不 Edit 节点 md**:判断类与表述类 FIX 都派修正 agent(`review_loop.triage` 新增 `restart_scope`:
+  `判断+表述` 可动 YAML / `仅表述` 只动正文),lint 措辞类(R3/R6/R8/R9)同样按节点并行派。
+  修正 agent 拿到的信息不少于主 agent 手改时的:FIX 原文 + 两份 reviewer 响应路径 + lint 原文全在文件里(prompt 模板见 phase6 Step 3)。
+- **PASS 线 = 判断类 FIX 归零**(`review_loop.run` 新增 `needs_new_round` / `next_step`;reviewer 自报 PASS/FAIL 只留档;
+  UNKNOWN 与「FAIL 却零 FIX」仍 fail-closed)。表述类照单落地但不重审——措辞改不出跨节点矛盾,改出来的结构问题 lint 会抓。
+  金山实测这条对它本身省不了轮次(三轮都有判断类),省的是「只剩措辞」的那种报告;真正堵住的是「留给下一轮」这句话:
+  两个 reviewer 手册把「剩下的留下一轮」改成「写进复核点并说明」,reviewer-logic 加「擦边项当轮裁决」——
+  Round 3 唯一的承重问题(30x 一褒一贬)Round 2 已经看见、标成擦边没开。
+- **HTML 只在终检读一次**:循环轮两个 reviewer 只审 md;质量环收敛后 `build_html` → reviewer-delivery **终检模式**
+  (只做 2.3 走查 + 2.2f 形状,只开表述类)跑一次。reviewer-logic 仍读装配后的完整报告含附录——
+  附录C 技术面「加仓时机」与⑤冲突那条就是从附录抓的,改成只读节点会漏。
+
+**同批发现、未在本版修的**:金山 Round 3 两份响应没落盘、`review_loop` 没跑(主 agent 从 context 里读判定),
+是协议违规不是脚本问题,质检清单加了一句。
+
+`review_loop` JSON 字段变更:去掉 `edit_targets`,新增 `needs_new_round` / `next_step` / `judgment_fixes` / `restart_scope`。
+测试 +4(表述类过线不开新轮 / FAIL 零 FIX 不放行 / 第 3 轮判断类转人工 / 分诊带 scope)。
+
 ## [v8.10] — 2026-09-16 — 金山办公(688111)实跑打出来的四个洞
 
 > 这一版全部来自一次真分析:跑轻资产样本 金山办公 时, Phase 1 一次性暴露四处

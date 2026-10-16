@@ -508,20 +508,54 @@ class TestReviewLoop(unittest.TestCase):
         })
         self.assertEqual(len(merged), 4)        # 两边都提的「结论没先行」只留一条
 
-    def test_triage_routes_judgment_to_writer_and_prose_to_main_agent(self):
+    def test_triage_routes_every_node_fix_to_its_writer_with_scope(self):
+        """v8.11:判断类与表述类都派写手, 主 agent 不再 Edit 节点 md;scope 说明能不能动 YAML。"""
         merged = review_loop.merge_fix_lists({
             "logic": review_loop.parse_reviewer_response(LOGIC_FAIL)["fixes"],
             "delivery": review_loop.parse_reviewer_response(DELIVERY_FAIL)["fixes"],
         })
         plan = review_loop.triage(merged)
-        self.assertEqual(plan["restart_writers"], ["node-odds", "decision-writer"])
-        self.assertEqual(plan["edit_targets"], ["nodes/node-state.md"])
+        self.assertEqual(plan["restart_writers"], ["node-odds", "node-state", "decision-writer"])
+        self.assertEqual(plan["restart_scope"], {
+            "node-odds": "判断+表述", "node-state": "仅表述", "decision-writer": "判断+表述",
+        })
+        self.assertEqual(plan["judgment_fixes"], 2)              # odds 判断 + front
         self.assertEqual(len(plan["by_node"]["delivery"]), 1)   # 交付类不惊动写手
+        self.assertNotIn("edit_targets", plan)
+
+    def test_prose_only_fixes_pass_the_line_without_a_new_round(self):
+        """PASS 线:reviewer 自报 FAIL 但只开了表述类 FIX → overall_pass, 不开新一轮, 走终检。"""
+        logic = "### 维度 1 判断链逻辑: FAIL\n\n### FIX 指令\n- [FIX-state-表述] 结论没先行 → 首行改成一句话判定\n"
+        delivery = ("### 维度 2 可读性与交付: FAIL\n\n### FIX 指令\n"
+                    "- [FIX-path-表述] 三情景焊成一句 → 改 3 行表\n"
+                    "- [FIX-delivery-表述] 宽表溢出 → 套横滚容器\n")
+        self.respond(1, logic, delivery)
+        out = review_loop.run(self.run_dir, 1)
+        self.assertTrue(out["overall_pass"])
+        self.assertFalse(out["needs_new_round"])
+        self.assertEqual(out["restart_writers"], ["node-state", "node-path"])   # 表述类照样落地
+        self.assertIn("终检", out["next_step"])
+        self.assertIn("不开新一轮", Path(out["fix_list_path"]).read_text(encoding="utf-8"))
+
+    def test_fail_without_any_parsable_fix_is_not_a_pass(self):
+        """reviewer 说 FAIL 却一条 FIX 都解析不出 → 不能因为「判断类=0」就放行(fail-closed)。"""
+        self.respond(1, "### 维度 1 判断链逻辑: FAIL\n\n问题很多但我没按格式写。\n",
+                     "### 维度 2 可读性与交付: PASS\n")
+        out = review_loop.run(self.run_dir, 1)
+        self.assertFalse(out["overall_pass"])
+        self.assertIn("转人工", out["next_step"])
+
+    def test_round_three_with_judgment_fix_hands_over(self):
+        self.respond(3, LOGIC_FAIL, DELIVERY_FAIL)
+        out = review_loop.run(self.run_dir, 3)
+        self.assertTrue(out["needs_new_round"])
+        self.assertIn("转人工", out["next_step"])
 
     def test_run_reports_fail_and_writes_fix_list(self):
         self.respond(1, LOGIC_FAIL, DELIVERY_FAIL)
         out = review_loop.run(self.run_dir, 1)
         self.assertFalse(out["overall_pass"])
+        self.assertTrue(out["needs_new_round"])                  # odds 判断 + front 两条
         self.assertEqual(out["fix_count"], 4)
         self.assertEqual(out["judgments"], {"logic": "FAIL", "delivery": "FAIL"})
         self.assertEqual(out["delivery_fixes"], 1)

@@ -25,6 +25,8 @@ argument-hint: <company-name>
 - ❌ **不直接** 跑 Tushare 采集(那是 data-collector 的事)
 - ❌ **不自跑** Phase 2 文档精析 / 不读 PDF 与 `pdf_sections_*.json`(那是 doc-analyst 的事)
 - ❌ **不写** 任何判断:五个节点的 verdict 与正文归五个写手,**你连它们的 YAML 块都不许手改**(要改就 fresh-restart 写手)
+- ❌ **不 Edit 节点 md**——连措辞都不改。reviewer / lint 开出的表述类 FIX 也派修正 agent(scope=仅表述)。你的上下文是写手的十倍,同一处改动你做贵十倍
+- ❌ **不在跑报告的会话里改 skill 代码**(修脚本、改手册、提交 commit 另开会话;发现缺陷先记 `main-log.md`)
 - ❌ **不手写** 首页决断卡 / 面板 / Top3 / 附录(机器装配,零人工抄写)
 - ❌ **不读** sub-agent 响应全文
 - ❌ **不在响应里** 粘贴 Bash stdout / Tushare DataFrame / WebSearch 完整结果
@@ -77,6 +79,12 @@ Agent(subagent_type="X", prompt="...", run_in_background=True/False, description
 ---
 
 ## Step 0: 环境自检（跨平台）
+
+**⓪ 干净会话检查(硬规则)**:本 skill 必须在**新会话**里启动。你在触发 `/company-analysis` 之前如果已经在这个会话里
+做过别的事(有历史对话、改过代码、跑过另一家公司),先告诉用户「请 `/clear` 或开新会话再跑」,然后**停止**,不要往下走。
+**为什么**:一份报告要 300 次主会话调用,每次都把整段历史重读一遍。金山办公那次在一个开了三周的会话里跑,
+起跑上下文 92 万 token,主会话一项就占了整份报告成本的六成($43 / $74);干净会话里同样的调度不到 $10。
+跑完报告也不要在同一会话里接着改 skill 代码。
 
 **① 先确定 Python 解释器 `{PYBIN}`** — 本文档后续所有命令都用它, 并在调用 sub-agent 时把它写进 prompt。
 **别假定,按顺序试到第一个能跑通 `{PYBIN} --version` 的**:
@@ -187,7 +195,8 @@ Phase 1 (data-collector) → Phase 2 (doc-analyst)
 | 3 波3 | `verdict_block --schema node-decision` + triad 与②③④ verdict 逐字同源 + 有 🔴 必封顶 | 退出码 0;后两项由 lint R15 / R7 机检(Phase 6 Step 0),上游改判定句后重抄 |
 | 3 装配 | `{PYBIN} -m scripts.assemble_report_v8 --run-dir {run_dir} …` 退出码 | 0 + Top3 非空 + 无缺附录告警 |
 | 6 门控 | `{PYBIN} -m scripts.lint_v8 --run-dir {run_dir} --artifacts-dir {artifacts_dir}` | 退出码 0(warn 不阻断) |
-| 6 评审 | `{PYBIN} -m scripts.review_loop --run-dir {run_dir} --round N` 的 JSON | `overall_pass: true`(3 轮上限 / `diff_repeat` → 转人工) |
+| 6 评审 | `{PYBIN} -m scripts.review_loop --run-dir {run_dir} --round N` 的 JSON | `overall_pass: true` = 判断类 FIX 归零(表述类只落地不重审;3 轮上限 / `diff_repeat` → 转人工) |
+| 6 终检 | `build_html` 后派 reviewer-delivery 终检模式一次 | `reviewer_responses/final_delivery.md` 落盘;FIX 落地后重出片 |
 | 6 出片 | `{PYBIN} -m scripts.build_html --company {company} --run-dir {run_dir}` 退出码 | 0 + 成品自检无缺项 |
 
 ---
@@ -203,8 +212,8 @@ Phase 1 (data-collector) → Phase 2 (doc-analyst)
 | Phase N sub-agent FAIL | fresh-restart 1 次,prompt 注入"上轮 FAIL 原因 + 门控报错原文";仍失败 → 转人工 |
 | 某节点 schema 3 轮仍红 | 转人工,不要自己改它的 YAML 块 |
 | 装配报节点块不合契约 / 红旗 id 找不到 | 按打印的字段路径 fresh-restart 对应写手 |
-| `lint_v8` fail | 判断类(R1/R2 🔴未归家/R5/R7)→ fresh-restart 写手;装配类(R2 漂移/R10)→ 重跑装配;措辞类(R3/R6/R8/R9)→ 主 agent Edit 正文后重跑装配 |
-| reviewer 3 轮仍 FAIL 或 `diff_repeat` | 转人工 + `_failure_report.md`(累计 FIX / 响应路径 / main-log tail 30 行) |
+| `lint_v8` fail | 判断类(R1/R2 🔴未归家/R5/R7)→ fresh-restart 写手;装配类(R2 漂移/R10)→ 重跑装配;措辞类(R3/R6/R8/R9)→ 按节点并行派修正 agent(scope=仅表述,粘 lint 原文)后重跑装配 |
+| reviewer 3 轮仍有判断类 FIX 或 `diff_repeat` | 转人工 + `_failure_report.md`(累计 FIX / 响应路径 / main-log tail 30 行) |
 | GitHub push 失败 | 保存 HTML 到本地 + 通知用户手动上传 |
 | 对话 context 紧张 | `main-log.md` + `runs/{date}/nodes/` + `manifest.json` 是状态唯一源,可 Read 重载 |
 
@@ -255,7 +264,7 @@ Phase 1 (data-collector) → Phase 2 (doc-analyst)
 | `scripts/verdict_block.py` ★ | 节点 YAML 块抽取 + schema 校验(每波门控) |
 | `scripts/assembly.py` + `scripts/assemble_report_v8.py` ★ | 摘要层装配 + 报告总装 |
 | `scripts/lint_v8.py` ★ | 质量环机器门控(R1-R16:schema / 红旗闭环 / 数字唯一 home / 合理价区间 / 封顶 / 越权 / 报告同步 / 推导闭合 / 证伪同源 / 三元组同源 / ③锚引用过期…) |
-| `scripts/review_loop.py` | 两 reviewer 判定合并 + FIX 分诊(判断类→写手 / 表述类→主 agent) |
+| `scripts/review_loop.py` | 两 reviewer 判定合并 + FIX 分诊(两类都→修正 agent,`restart_scope` 定权限)+ PASS 线(判断类归零)+ `next_step` |
 | `scripts/lessons_manager.py` | 全局经验库 (append / recent) |
 | `scripts/compare.py` ★ | 产业链对比 `--compare`:成组 / 并排装配(零新判断)/ 组内裁决四条机检(产 `compare.json`) |
 | `scripts/build_html.py` + `update_index.py` | HTML + 主页联动(`--compare-slug` 出对比页与站点条目) |
