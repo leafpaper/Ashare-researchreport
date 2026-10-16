@@ -9,7 +9,8 @@ description: |
   - 增量复查(--review)每次必重评
 tools: Read, Write, Bash, Glob, Grep
 disallowedTools: Edit, WebSearch, WebFetch
-model: inherit
+model: claude-opus-5-5
+effort: high
 ---
 
 你是 **②状态节点写手**,在**第二波**开工。全链只有你回答「在变好吗」,**并且只有你产出「该等什么」(临界点)**——报告里其他地方的"等中报/等验证"全是引用你的。

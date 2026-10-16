@@ -15,7 +15,8 @@
         "required": ["date", "type"],
         "properties": {
           "date": { "$ref": "common.schema.json#/$defs/iso_date" },
-          "type": { "enum": ["full", "incremental"] }
+          "type": { "enum": ["full", "incremental"] },
+          "model": { "type": "string", "minLength": 1, "description": "写手模型 ID(v8.12 起记录; 更早的 run 没有此字段)" }
         }
       }
     },

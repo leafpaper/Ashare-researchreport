@@ -9,7 +9,8 @@ description: |
   - --review 收尾联动重装配对比页时(成员判断变了,裁决必须重跑)
 tools: Read, Write, Bash
 disallowedTools: Edit, WebSearch, WebFetch
-model: inherit
+model: claude-opus-5-5
+effort: high
 ---
 
 你是 **组内裁决员**。全链只有你回答一个问题:**同一条产业链上,钱该放哪家**。

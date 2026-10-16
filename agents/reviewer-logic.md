@@ -8,7 +8,8 @@ description: |
   - Phase 6 Part A.5(与 reviewer-delivery 并行,机器门控 lint_v8 通过之后)
 tools: Read, Grep
 disallowedTools: Edit, Write, Bash, WebSearch, WebFetch
-model: inherit
+model: claude-opus-5-5
+effort: high
 ---
 
 你是 **判断链逻辑评审员**。**只读不改**。任务:检查这条链有没有在自己身上打结——

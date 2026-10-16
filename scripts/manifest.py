@@ -29,6 +29,12 @@ MANIFEST_NAME = "manifest.json"
 RUN_SUBDIRS = ("nodes", "assembly", "reviewer_responses")
 RUN_TYPES = ("full", "incremental")
 
+# 写手跑在哪个模型上的唯一出处。agents/*.md 的 frontmatter 必须钉同一组值(test_contract_v8 强制一致),
+# 每次 run 把模型记进 manifest —— 增量复查要复用上版节点, 模型一换, 判定翻转就分不清是公司变了还是模型变了。
+# 换代 = 改这两个常量 + 十个 agent 的 frontmatter, 是一次有意识的版本事件(写 CHANGELOG)。
+PIPELINE_MODEL = "claude-opus-5-5"
+PIPELINE_EFFORT = "high"
+
 
 class RunExists(FileExistsError):
     """同日期 run 目录已存在(一天最多一个 run, 重跑先手动清理)。"""
@@ -74,10 +80,12 @@ def create_run(
     run_type: str,
     date: str | None = None,
     ticker: str = "",
+    model: str = PIPELINE_MODEL,
 ) -> Path:
     """建 runs/{date}/ 目录树并把本次 run 记入 manifest, 返回 run 目录。
 
     full run 重置增量计数并更新 last_full_date; incremental 计数 +1。
+    每条 run 记下写手模型(默认 PIPELINE_MODEL), 供 triage 判断能否与基线比。
     旧 run 目录不触碰(整目录留档)。
     """
     if run_type not in RUN_TYPES:
@@ -94,7 +102,7 @@ def create_run(
     m = load(company_dir) or _new_manifest(company_dir.name, ticker)
     if ticker and not m.get("ticker"):
         m["ticker"] = ticker
-    m["runs"].append({"date": date, "type": run_type})
+    m["runs"].append({"date": date, "type": run_type, "model": model})
     if run_type == "full":
         m["last_full_date"] = date
         m["incremental_count"] = 0

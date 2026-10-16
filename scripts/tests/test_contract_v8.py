@@ -574,6 +574,33 @@ class TestExtractYamlBlock(unittest.TestCase):
 
 # ---------------------------------------------------------------- runs 目录制 + manifest
 
+class TestPipelineModelPinned(unittest.TestCase):
+    """manifest 记下的模型 = agents/*.md 钉的模型; 两边不一致, manifest 就在说假话。"""
+
+    @staticmethod
+    def _frontmatter(path: Path) -> dict[str, str]:
+        text = path.read_text(encoding="utf-8")
+        assert text.startswith("---\n"), f"{path.name}: 缺 frontmatter"
+        head = text[4:].split("\n---\n", 1)[0]
+        return dict(line.split(": ", 1) for line in head.splitlines()
+                    if line and not line.startswith(" ") and ": " in line)
+
+    def test_every_agent_pins_pipeline_model_and_effort(self):
+        agents = sorted((Path(__file__).resolve().parents[2] / "agents").glob("*.md"))
+        self.assertTrue(agents, "agents/ 下没找到 agent 定义")
+        for path in agents:
+            fm = self._frontmatter(path)
+            self.assertEqual(fm.get("model"), manifest_mod.PIPELINE_MODEL, path.name)
+            self.assertEqual(fm.get("effort"), manifest_mod.PIPELINE_EFFORT, path.name)
+
+    def test_create_run_records_override_model(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td) / "东山精密"
+            base.mkdir()
+            manifest_mod.create_run(base, "full", date="2026-06-22", model="claude-test")
+            self.assertEqual(manifest_mod.load(base)["runs"][0]["model"], "claude-test")
+
+
 class TestRunsAndManifest(unittest.TestCase):
     def _tmp_company(self, td: str) -> Path:
         return Path(td) / "东山精密"
@@ -589,7 +616,8 @@ class TestRunsAndManifest(unittest.TestCase):
             self.assertFalse((run_dir / "raw_data").exists(), "run 目录不该建 raw_data")
             m = manifest_mod.load(base)
             self.assertEqual(verdict_block.validate(m, "manifest"), [])
-            self.assertEqual(m["runs"], [{"date": "2026-06-22", "type": "full"}])
+            self.assertEqual(m["runs"], [{"date": "2026-06-22", "type": "full",
+                                          "model": manifest_mod.PIPELINE_MODEL}])
             self.assertEqual(m["last_full_date"], "2026-06-22")
             self.assertEqual(m["incremental_count"], 0)
 
@@ -634,7 +662,8 @@ class TestRunsAndManifest(unittest.TestCase):
             manifest_mod.create_run(base, "full", date="2026-06-22")
             manifest_mod.create_run(base, "incremental", date="2026-08-20")
             latest = manifest_mod.latest_run(base)
-            self.assertEqual(latest, {"date": "2026-08-20", "type": "incremental"})
+            self.assertEqual(latest, {"date": "2026-08-20", "type": "incremental",
+                                      "model": manifest_mod.PIPELINE_MODEL})
 
 
 class TestNextDisclosureDate(unittest.TestCase):

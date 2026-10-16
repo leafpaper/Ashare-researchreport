@@ -4,6 +4,27 @@
 
 ---
 
+## [v8.12] — 2026-10-16 — 写手模型钉死 + 记进 manifest
+
+**起因**:十个 agent 原先都是 `model: inherit`,跟着主会话走。两个后果:
+① 主会话临时切过别的模型再跑报告,五个判断节点会**静默降级**;
+② 增量复查复用未标脏的上版节点 —— 模型一换代(这次 Opus 5 → 5.5),同一份报告里混着两代模型写的节点,
+判定翻转**分不清是公司变了还是模型变了**,而 manifest 与 triage 都不记录模型。
+
+- `manifest.PIPELINE_MODEL = "claude-opus-5-5"` / `PIPELINE_EFFORT = "high"`:写手模型的唯一出处。
+  十个 `agents/*.md` 全部钉成这组值,`test_contract_v8.TestPipelineModelPinned` 强制两边一致。
+- `create_run` 把 `model` 记进 `manifest.runs[]`(schema 加可选字段,更早的 run 没有它仍合法)。
+- `triage.model_drift` → `full_rerun_advice` 第三条建议档:上次全量(含)到本次之间模型不一致,
+  **或没记录**(v8.12 之前的 run),都建议全量重锚。不阻断本次增量。
+
+**为什么不降级搬运类 agent**:金山办公实测主会话占 $43/$74、子代理 25 个里 19 个是评审与修正,
+data-collector 只是其中一个;「修正 agent 换 Sonnet」此前已算过只省约 $2.5。质量优先,成本其次。
+
+**现役五份报告**(东山 / 中际旭创 / 华特 / 金山 / 立讯)都早于本版,下次 `--review` 一律会带「模型未记录」建议 ——
+这是对的:它们出自 Opus 5,而复查会跑在 5.5 上。
+
+换代流程:改两个常量 + 十个 agent 的 frontmatter → 跑测试 → 写 CHANGELOG。测试 527 → 534。
+
 ## [v8.11] — 2026-09-18 — 质量环省钱四条(只动编排,reviewer 读什么一字未减)
 
 **起因**:按会话转录 usage 去重加总(Opus 5),金山办公一份报告 ≈ $74:主会话 $43(286 次调用、平均每次 25 万 token 上下文,

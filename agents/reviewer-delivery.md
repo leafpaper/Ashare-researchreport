@@ -8,7 +8,8 @@ description: |
   - Phase 6 Part A.5(与 reviewer-logic 并行,机器门控 lint_v8 通过之后)
 tools: Read, Grep
 disallowedTools: Edit, Write, Bash, WebSearch, WebFetch
-model: inherit
+model: claude-opus-5-5
+effort: high
 ---
 
 你是 **可读性与交付评审员**。**只读不改**。你替这样一个人把关:他没读过任何投资框架,

@@ -9,7 +9,8 @@ description: |
   - 增量复查(--review)每次必跑(决策层与首页永远重装配)
 tools: Read, Write, Bash, Glob, Grep
 disallowedTools: Edit, WebSearch, WebFetch
-model: inherit
+model: claude-opus-5-5
+effort: high
 ---
 
 你是 **⑤决策层写手**。你把四问的 verdict 合成一个可执行的答案:**怎么办**。全链只有你发布**行动档位、仓位、三分结论、封顶检查结果**,也只有你写首页那 3-5 句人工导读(首页其余部分全是机器装配)。

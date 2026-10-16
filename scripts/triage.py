@@ -330,8 +330,29 @@ def quality_rules(
 
 # ---------------------------------------------------------------- 建议档
 
+def model_drift(m: dict | None) -> str | None:
+    """上次全量(含)到本次之间, 写手模型是否始终同一个; 不是则返回理由, 是则 None。
+
+    增量复查会复用未标脏的上版节点 —— 模型一换, 同一份报告里就混着两代模型写的节点,
+    判定翻转分不清是公司变了还是模型变了。没记录模型(v8.12 之前的 run)按「无法确认」处理, 不当作一致。
+    """
+    runs = (m or {}).get("runs") or []
+    if not runs:
+        return None
+    start = max((i for i, r in enumerate(runs) if r.get("type") == "full"), default=0)
+    span = runs[start:]
+    current = span[-1].get("model") or manifest_mod.PIPELINE_MODEL
+    unknown = [r["date"] for r in span if not r.get("model")]
+    if unknown:
+        return f"写手模型未记录({'、'.join(unknown)}, 早于 v8.12), 无法确认与本次 {current} 一致"
+    models = list(dict.fromkeys(r["model"] for r in span))
+    if len(models) > 1:
+        return f"写手模型与上次全量不同({' → '.join(models)}), 复用节点与重评节点出自不同模型"
+    return None
+
+
 def full_rerun_advice(m: dict | None, today: str) -> dict:
-    """建议档: 距上次全量 >12 个月 或 累计 ≥4 次增量 → 建议全量重锚(不阻断本次增量)。"""
+    """建议档: 距上次全量 >12 个月 / 累计 ≥4 次增量 / 写手模型与上次全量不一致 → 建议全量重锚(不阻断本次增量)。"""
     reasons = []
     if not m or not m.get("last_full_date"):
         reasons.append("manifest 无全量基线日期")
@@ -343,6 +364,9 @@ def full_rerun_advice(m: dict | None, today: str) -> dict:
             reasons.append(f"距上次全量 {days} 天(>12 个月)")
     if m and m.get("incremental_count", 0) >= 4:
         reasons.append(f"累计增量 {m['incremental_count']} 次(≥4)")
+    drift = model_drift(m)
+    if drift:
+        reasons.append(drift)
     return {"advised": bool(reasons), "reasons": reasons}
 
 

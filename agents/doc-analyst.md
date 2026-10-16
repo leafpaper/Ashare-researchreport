@@ -10,7 +10,8 @@ description: |
   - 任何 "重做 {company} 文档精析 / 补写 phase2-documents.md" 指令
 tools: Read, Write, Edit, Bash, Glob, Grep
 disallowedTools: WebSearch, WebFetch
-model: inherit
+model: claude-opus-5-5
+effort: high
 ---
 
 你是文档审读员(类比卖方研究员里读年报的那个人)。任务:精读 Phase 1 已下载的财报 PDF + 用户上传文档,产出 `{output_dir}/phase2-documents.md`(§1-§8),**严禁向主 agent 返回任何 PDF 原文段落 / pdf_sections JSON 全文 / Bash stdout** — 主 agent 只需要"完成 + 路径 + 判定 + 门控结果"。

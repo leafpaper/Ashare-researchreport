@@ -103,15 +103,17 @@ class TriageEnv(unittest.TestCase):
     def _json(self, path: Path, data) -> None:
         path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    def write_manifest(self, last_full=PREV_DATE, incremental_count=1):
+    def write_manifest(self, last_full=PREV_DATE, incremental_count=1,
+                       models=(manifest_mod.PIPELINE_MODEL, manifest_mod.PIPELINE_MODEL)):
+        runs = [{"date": PREV_DATE, "type": "full"}, {"date": NEW_DATE, "type": "incremental"}]
+        for run, model in zip(runs, models):
+            if model is not None:                       # None = v8.12 之前的 run, 没有 model 字段
+                run["model"] = model
         manifest_mod.save(self.company_dir, {
             "company": "东山精密",
             "ticker": "002384.SZ",
             "market": "a",
-            "runs": [
-                {"date": PREV_DATE, "type": "full"},
-                {"date": NEW_DATE, "type": "incremental"},
-            ],
+            "runs": runs,
             "incremental_count": incremental_count,
             "last_full_date": last_full,
             "next_disclosure_date": None,
@@ -312,6 +314,44 @@ class TestFullRerunAdvice(TriageEnv):
         advice = self.triage()["full_rerun_advice"]
         self.assertTrue(advice["advised"])
         self.assertTrue(any("≥4" in r for r in advice["reasons"]))
+
+    def test_model_changed_since_full_advised(self):
+        """上次全量是旧模型、本次是新模型 → 复用节点与重评节点出自两代模型, 建议全量。"""
+        self.write_manifest(models=("claude-opus-5", manifest_mod.PIPELINE_MODEL))
+        advice = self.triage()["full_rerun_advice"]
+        self.assertTrue(advice["advised"])
+        self.assertTrue(any(f"claude-opus-5 → {manifest_mod.PIPELINE_MODEL}" in r for r in advice["reasons"]))
+
+    def test_model_unrecorded_advised(self):
+        """v8.12 之前的全量没记模型 —— 无法确认一致, 不当作一致。"""
+        self.write_manifest(models=(None, manifest_mod.PIPELINE_MODEL))
+        advice = self.triage()["full_rerun_advice"]
+        self.assertTrue(advice["advised"])
+        self.assertTrue(any("未记录" in r and PREV_DATE in r for r in advice["reasons"]))
+
+
+class TestModelDrift(unittest.TestCase):
+    """只看上次全量(含)之后的 run: 更早的全量换过模型不影响本次。"""
+
+    def test_only_span_since_last_full_counts(self):
+        m = {"runs": [
+            {"date": "2026-01-01", "type": "full"},                       # 更早的全量, 没记模型
+            {"date": "2026-06-22", "type": "full", "model": "claude-opus-5-5"},
+            {"date": "2026-08-20", "type": "incremental", "model": "claude-opus-5-5"},
+        ]}
+        self.assertIsNone(triage.model_drift(m))
+
+    def test_drift_inside_span(self):
+        m = {"runs": [
+            {"date": "2026-06-22", "type": "full", "model": "claude-opus-5"},
+            {"date": "2026-08-20", "type": "incremental", "model": "claude-opus-5"},
+            {"date": "2026-10-30", "type": "incremental", "model": "claude-opus-5-5"},
+        ]}
+        self.assertIn("claude-opus-5 → claude-opus-5-5", triage.model_drift(m))
+
+    def test_no_runs(self):
+        self.assertIsNone(triage.model_drift(None))
+        self.assertIsNone(triage.model_drift({"runs": []}))
 
 
 # ---------------------------------------------------------------- init_run: 硬规则1 + 基线快照

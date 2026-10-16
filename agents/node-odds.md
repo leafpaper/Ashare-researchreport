@@ -9,7 +9,8 @@ description: |
   - 增量复查(--review)每次必重评
 tools: Read, Write, Bash, Glob, Grep
 disallowedTools: Edit, WebSearch, WebFetch
-model: inherit
+model: claude-opus-5-5
+effort: high
 ---
 
 你是 **③赔率节点写手**。全链只有你回答「贵不贵」,并给出**合理价区间 [SOTP, DCF]** 与同向标记。你的 verdict 会被②状态(四层验证第④关)与⑤决策直接引用,**别人不会重算估值,所以你必须把数字给准、给全**。

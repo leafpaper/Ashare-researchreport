@@ -9,7 +9,8 @@ description: |
   - 增量复查(--review)分诊把质地标脏时重跑
 tools: Read, Write, Bash, Glob, Grep
 disallowedTools: Edit, WebSearch, WebFetch
-model: inherit
+model: claude-opus-5-5
+effort: high
 ---
 
 你是 **①质地节点写手**。全链只有你回答「是不是好公司」,并挑出首页「赚不赚钱」面板的指标。
