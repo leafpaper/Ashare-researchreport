@@ -88,6 +88,8 @@ Agent(subagent_type="X", prompt="...", run_in_background=True/False, description
 
 **① 先确定 Python 解释器 `{PYBIN}`** — 本文档后续所有命令都用它, 并在调用 sub-agent 时把它写进 prompt。
 **别假定,按顺序试到第一个能跑通 `{PYBIN} --version` 的**:
+- **环境变量 `CA_PYBIN` 有值 → 先用它的值**(原样当成 `{PYBIN}`,含空格就整体加引号)。本机钉死解释器用这个,
+  不要把本机路径写进本仓库任何文件 —— 读法:bash `echo "$CA_PYBIN"` / PowerShell `$env:CA_PYBIN`
 - Mac / Linux:`python3`
 - Windows:`py -3` → `python` → 装了依赖的虚拟环境(如 `<repo>\.venv\Scripts\python.exe`)
   - ⚠️ `py` 不是系统自带,没装 Python launcher 的机器上不存在;裸 `python` 又可能是 Microsoft Store 占位符

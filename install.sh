@@ -221,6 +221,8 @@ if [ "$PHASE_COUNT" -eq "6" ] && [ "$AGENT_COUNT" -eq "10" ] && [ "$REF_COUNT" -
     echo "  /company-analysis Apple AAPL             # 美股"
     echo "  /company-analysis 腾讯控股 0700.HK       # 港股"
     echo ""
+    echo "提示: 想钉死解释器(如 venv 里的 python), 设环境变量 CA_PYBIN 为它的完整路径。"
+    echo ""
 else
     echo ""
     echo "❌ 错误：安装不完整"

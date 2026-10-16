@@ -54,3 +54,4 @@ Write-Host "       [Environment]::SetEnvironmentVariable('TUSHARE_TOKEN','your_t
 Write-Host "  3. In Claude Code:  /company-analysis <company> <ticker>"
 Write-Host ""
 Write-Host "  Note: on Windows use 'py -3' (the skill auto-detects PYBIN)."
+Write-Host "        To pin one interpreter (e.g. a venv python.exe), set env CA_PYBIN to its full path."
