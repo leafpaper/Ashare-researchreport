@@ -7,7 +7,7 @@
 装在 Claude Code、OpenCode（可接 DeepSeek）或 Codex 里用，一条命令触发。
 
 <p align="center">
-  <a href="https://github.com/leafpaper/a-share-research-report/actions/workflows/tests.yml"><img src="https://github.com/leafpaper/a-share-research-report/actions/workflows/tests.yml/badge.svg" alt="tests"></a>
+  <a href="https://github.com/leafpaper/Ashare-researchreport/actions/workflows/tests.yml"><img src="https://github.com/leafpaper/Ashare-researchreport/actions/workflows/tests.yml/badge.svg" alt="tests"></a>
   <img src="https://img.shields.io/badge/version-v8.14-blue" alt="version">
   <img src="https://img.shields.io/badge/markets-A%E8%82%A1%20%7C%20%E6%B8%AF%E8%82%A1%20%7C%20%E7%BE%8E%E8%82%A1-green" alt="markets">
   <img src="https://img.shields.io/badge/agents-Claude%20Code%20%7C%20OpenCode%20%7C%20Codex-orange" alt="agents">
@@ -64,7 +64,7 @@
 
 ```bash
 # Mac / Linux
-curl -fsSL https://raw.githubusercontent.com/leafpaper/a-share-research-report/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/leafpaper/Ashare-researchreport/main/install.sh | bash
 ```
 ```powershell
 # Windows，在克隆下来的仓库根目录里跑
@@ -196,7 +196,7 @@ Phase 6  质量环    lint_v8 18 条 → reviewer-logic ∥ reviewer-delivery �
 
 | 版本 | 关键变化 |
 |---|---|
-| **v8.14** | 改名「A股研报」，README 重写，仓库改名 `a-share-research-report` |
+| **v8.14** | 改名「A股研报」，README 重写，仓库改名 `Ashare-researchreport` |
 | **v8.13** | 装上就能用：Agent Skills 标准 frontmatter、一键装到 Claude Code / OpenCode / Codex、子代理文件一源三出 |
 | **v8.11** | 质量环省钱四条：干净会话硬规则 / 主 agent 不改节点 / 判断类归零即通过 / HTML 只在终检读一次 |
 | **v8.10** | 首个轻资产订阅制样本（金山办公）打出 5 个采集缺陷与 6 条流水线修补 |

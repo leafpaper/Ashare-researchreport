@@ -2,7 +2,7 @@
 #
 # company-analysis skill — 卸载(三家 harness 的安装位置都清)
 #
-#   curl -fsSL https://raw.githubusercontent.com/leafpaper/a-share-research-report/main/uninstall.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/leafpaper/Ashare-researchreport/main/uninstall.sh | bash
 #
 
 removed=0

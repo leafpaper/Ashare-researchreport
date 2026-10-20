@@ -6,7 +6,7 @@
 
 ## [v8.14] — 2026-10-21 — 改名「A股研报」+ README 重写
 
-- 品牌名改为 **A股研报**,仓库改名 `leafpaper/a-share-research-report`(旧地址 GitHub 自动跳转);命令名 `/company-analysis` 不变。
+- 品牌名改为 **A股研报**,仓库改名 `leafpaper/Ashare-researchreport`(旧地址 GitHub 自动跳转);命令名 `/company-analysis` 不变。
 - README 重写:面向 A 股读者,第一屏一条命令一份研报,安装三步,三种用法一张表;开发者内容(报告结构 / 流水线 / 质量门控 / 仓库结构 / 版本)保留,折叠到「给开发者」。
 - SKILL.md description 改成触发导向(公司名、代码、「分析 / 复查 / 对比」)。
 - 安装脚本、HTML 模板页脚、badge 全部指向新仓库名。

@@ -3,7 +3,7 @@
 # company-analysis skill — 一键安装 (v8.13)
 #
 # 用法:
-#   curl -fsSL https://raw.githubusercontent.com/leafpaper/a-share-research-report/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/leafpaper/Ashare-researchreport/main/install.sh | bash
 #   curl -fsSL .../install.sh | bash -s -- codex        # 只装给 Codex
 #   curl -fsSL .../install.sh | bash -s -- opencode     # 只装给 OpenCode(DeepSeek 走这个)
 #   curl -fsSL .../install.sh | bash -s -- all          # 三家都装
@@ -20,7 +20,7 @@
 set -e
 
 TARGET="${1:-${CA_TARGET:-auto}}"
-REPO_TARBALL="https://github.com/leafpaper/a-share-research-report/archive/refs/heads/main.tar.gz"
+REPO_TARBALL="https://github.com/leafpaper/Ashare-researchreport/archive/refs/heads/main.tar.gz"
 
 # ------------------------------------------------ 源:本地仓库 or 下载
 if [ -f "$(dirname "$0")/SKILL.md" ] 2>/dev/null; then
@@ -31,7 +31,7 @@ else
   trap 'rm -rf "$TMP"' EXIT
   echo "下载 $REPO_TARBALL ..."
   curl -fsSL "$REPO_TARBALL" | tar -xz -C "$TMP"
-  SRC="$TMP/a-share-research-report-main"
+  SRC="$TMP/Ashare-researchreport-main"
 fi
 
 # ------------------------------------------------ 目标
