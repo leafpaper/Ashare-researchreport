@@ -53,21 +53,20 @@
 
 ## 2. 第一波:两个写手并行
 
-```python
-Agent(subagent_type="node-quality", run_in_background=True, description="①质地",
-      prompt=f"""写①质地节点。
+```text
+▶ 派 node-quality(①质地,并行)
+prompt = f"""写①质地节点。
 run_dir       = output/{company}/runs/{date}/
 artifacts_dir = output/{company}/
 company={company} ticker={ticker} market={market} date={date} PYBIN={PYBIN}
 
 按 references/judgment-chain.md + references/node-quality.md 两份手册写
 {run_dir}/nodes/node-quality.md(顶部 YAML verdict 块 + 正文 ≤70 行),
-写完自跑 verdict_block 校验,响应只回完成报告(**判定** 单独一行),不要回放文件内容。""")
-
-Agent(subagent_type="node-odds", run_in_background=True, description="③赔率", prompt=...)
+写完自跑 verdict_block 校验,响应只回完成报告(**判定** 单独一行),不要回放文件内容。"""
+▶ 派 node-odds(③赔率,并行)   prompt = 同上骨架,换成③的任务
 ```
 
-两个都 `run_in_background=True`,等系统的 task-notification 收齐两份响应。
+两个并行派出,等两份完成报告都回来(各 harness 怎么等见 `references/harness.md`)。
 
 **验收(主 agent 复核,不信自证)**:
 
@@ -86,19 +85,19 @@ fresh-restart 该写手一次(prompt 注入 verdict_block 的报错原文 + "上
 第一波两个都过了才启动(两者都要引用 odds 的 verdict:②状态的四层验证第④关引用它的判定,
 ④路径的左尾 `depth_pct` 拿它的锚当分母)。两个并行。
 
-```python
-Agent(subagent_type="node-state", run_in_background=False, description="②状态",
-      prompt=f"""写②状态节点(第二波)。run_dir / artifacts_dir / … 同上。
+```text
+▶ 派 node-state(②状态,前台)
+prompt = f"""写②状态节点(第二波)。run_dir / artifacts_dir / … 同上。
 ③赔率已产出:{run_dir}/nodes/node-odds.md —— **只读它顶部 YAML 块的 verdict 与 anchor_range**,
 四层验证第④关与贝叶斯第 3 问引用它,不要自算估值。
-「该等什么」(critical_point)是全链唯一产出处,2-4 条,每条带时间窗与判据。""")
+「该等什么」(critical_point)是全链唯一产出处,2-4 条,每条带时间窗与判据。"""
 ```
 
-```python
-Agent(subagent_type="node-path", run_in_background=True, description="④路径",
-      prompt=f"""写④路径节点(第二波)。run_dir / artifacts_dir / … 同上。
+```text
+▶ 派 node-path(④路径,并行)
+prompt = f"""写④路径节点(第二波)。run_dir / artifacts_dir / … 同上。
 ③赔率已产出:{run_dir}/nodes/node-odds.md —— **只读它顶部 YAML 块的 verdict 与 anchor_range**,
-左尾 `depth_pct` 以它的锚为分母;量不到价格就填 null + magnitude,不要自算估值。""")
+左尾 `depth_pct` 以它的锚为分母;量不到价格就填 null + magnitude,不要自算估值。"""
 ```
 
 验收:`verdict_block --schema node-{path,state}` 两条都退出 0 +
@@ -108,11 +107,11 @@ Agent(subagent_type="node-path", run_in_background=True, description="④路径"
 
 ## 4. 第三波:⑤决策
 
-```python
-Agent(subagent_type="decision-writer", run_in_background=False, description="⑤决策",
-      prompt=f"""写⑤决策层 + 首页 3-5 句导读。run_dir / artifacts_dir / … 同上;amount={amount}。
+```text
+▶ 派 decision-writer(⑤决策,前台)
+prompt = f"""写⑤决策层 + 首页 3-5 句导读。run_dir / artifacts_dir / … 同上;amount={amount}。
 四个节点块已就位。只读它们顶部的 YAML 块(不读正文、不读节点手册),
-按 judgment-chain §2 查六档映射,封顶检查看 {artifacts_dir}/red_flags.json 有无 🔴。""")
+按 judgment-chain §2 查六档映射,封顶检查看 {artifacts_dir}/red_flags.json 有无 🔴。"""
 ```
 
 验收:`verdict_block --schema node-decision` 退出 0,并**人工确认三件事**(从响应字段读,不读全文):

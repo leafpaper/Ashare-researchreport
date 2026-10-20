@@ -1,6 +1,6 @@
 # Phase 1: 数据采集（v4 - PDF + API 优先）
 
-> **⚠️ v5.0 起**: 本文件由 `agents/data-collector.md` sub-agent 执行,主 agent 不直接读本文件指令;主 agent 只通过 `Agent(subagent_type: "data-collector")` 调用,sub-agent 内部 Read 本文件了解流程。本文件仍是 Phase 1 流程的"权威参考",sub-agent 模板出现冲突时以本文件为准。
+> **⚠️ v5.0 起**: 本文件由 `agents/data-collector.md` sub-agent 执行,主 agent 不直接读本文件指令;主 agent 只通过派 `data-collector` 子代理调用,sub-agent 内部 Read 本文件了解流程。本文件仍是 Phase 1 流程的"权威参考",sub-agent 模板出现冲突时以本文件为准。
 
 > **🧭 你在这里**：[SKILL.md 协调器](../SKILL.md) → **Phase 1 数据采集** → Phase 2 文档精析
 >

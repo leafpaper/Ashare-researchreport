@@ -91,25 +91,24 @@
 
 ### Step 1: 两个 reviewer 并行(循环轮只审 md,不出片、不读 HTML)
 
-```python
-Agent(subagent_type="reviewer-logic", run_in_background=True, description="维度1 判断链逻辑",
-      prompt=f"""评审判断链逻辑(第 {round} 轮)。
+```text
+▶ 派 reviewer-logic(维度1 判断链逻辑,并行)
+prompt = f"""评审判断链逻辑(第 {round} 轮)。
 run_dir     = {run_dir}
 artifacts_dir = {artifacts_dir}
 report_path = {run_dir}/{company}-analysis-{date}.md
 lint_v8 已全绿(schema/红旗闭环/数字home/合理价区间/封顶/越权/外链/同步都查过了),别重复机器规则。
 {round ≥ 2 时:上轮 FIX 列表在 {run_dir}/reviewer_responses/round_{round-1}_merged_fix.md,已应用;先逐条核销,再全文过一遍。}
 按 agents/reviewer-logic.md 的 5 项检查出判定与 FIX。判定只由判断类 FIX 决定;表述类照列,不算 FAIL。
-响应只回评审结论,不要回放文件内容。""")
-
-Agent(subagent_type="reviewer-delivery", run_in_background=True, description="维度2 可读性与交付",
-      prompt=f"""评审可读性与交付(第 {round} 轮,循环轮模式:只审 md,本轮没有 HTML)。run_dir / artifacts_dir / report_path 同上。
+响应只回评审结论,不要回放文件内容。"""
+▶ 派 reviewer-delivery(维度2 可读性与交付,并行)
+prompt = f"""评审可读性与交付(第 {round} 轮,循环轮模式:只审 md,本轮没有 HTML)。run_dir / artifacts_dir / report_path 同上。
 {round ≥ 2 时:上轮 FIX 已应用,列表同上;先核销再过一遍。}
 按 agents/reviewer-delivery.md 的 2.1 结论先行 + 2.2 全说人话出判定与 FIX;2.3 走查清单留给终检。
-判定只由判断类 FIX(含 front)决定;表述类照列,不算 FAIL。""")
+判定只由判断类 FIX(含 front)决定;表述类照列,不算 FAIL。"""
 ```
 
-两个都 `run_in_background=True`,等系统的 task-notification 收齐两份响应。
+两个并行派出,等两份完成报告都回来(各 harness 怎么等见 `references/harness.md`)。
 **循环轮不出片**:HTML 只在 Step 4 终检时出一次、读一次(版式走查不随文字修改变化,每轮都读是纯浪费;
 金山办公实测 reviewer 在循环里分页读了 10 万字 HTML,没有一条 FIX 是 md 里看不出来的)。
 
@@ -167,18 +166,18 @@ Agent(subagent_type="reviewer-delivery", run_in_background=True, description="�
 修正 agent 拿到的信息**一个字不少于主 agent 手改时手里的**:FIX 原文、两份 reviewer 响应全文路径、lint 报错原文全在文件里,
 prompt 里点名即可。
 
-1. **`restart_writers` 里每个写手各派一个修正 agent,全部并行 `run_in_background=True`**,prompt 模板:
+1. **`restart_writers` 里每个写手各派一个修正 agent,全部并行派出**,prompt 模板:
 
-   ```python
-   Agent(subagent_type="{agent}", run_in_background=True, description="修正 {节点}",
-         prompt=f"""修正{节点}节点(第 {round} 轮 FIX,这是重跑:只看当前文件状态,不要假设你记得任何上下文)。
+   ```text
+   ▶ 派 {agent}(修正 {节点},并行)
+   prompt = f"""修正{节点}节点(第 {round} 轮 FIX,这是重跑:只看当前文件状态,不要假设你记得任何上下文)。
    run_dir = {run_dir} · artifacts_dir = {artifacts_dir} · PYBIN = {PYBIN}
    scope = {restart_scope[agent]}   ← 「仅表述」= 只改正文,顶部 YAML 块一个字不动;「判断+表述」= YAML 与正文都可改
    本轮开给你的 FIX(原文):
    {该节点在 round_{round}_merged_fix.md 里的那几行}
    reviewer 完整理由见 {run_dir}/reviewer_responses/round_{round}_logic.md 与 round_{round}_delivery.md(只读与你相关的段)。
    改完自跑 {PYBIN} -m scripts.verdict_block --schema {schema} --file {run_dir}/nodes/node-{node}.md,退出 0 才算完。
-   完成报告只回:判定 / 改了哪几条 FIX / 没改的说明为什么。""")
+   完成报告只回:判定 / 改了哪几条 FIX / 没改的说明为什么。"""
    ```
 
    lint 措辞类(R3 / R6 / R8 / R9)报红也走同一模板,把 lint 报错原文粘进 FIX 位置。
@@ -203,12 +202,12 @@ prompt 里点名即可。
 1. 出片:`{PYBIN} -m scripts.build_html --company {company} --run-dir {run_dir}`(退出 0)。
 2. 派**一个** reviewer-delivery,终检模式:
 
-   ```python
-   Agent(subagent_type="reviewer-delivery", run_in_background=False, description="终检 HTML 走查",
-         prompt=f"""终检模式(不是循环轮)。run_dir / artifacts_dir / report_path 同前;
+   ```text
+   ▶ 派 reviewer-delivery(终检 HTML 走查,前台)
+   prompt = f"""终检模式(不是循环轮)。run_dir / artifacts_dir / report_path 同前;
    html_path = {run_dir}/{company}-analysis-{date}.html
    只做 agents/reviewer-delivery.md 的 2.3 走查清单 + 2.2f 形状复核;不再评判断、不开判断类 FIX。
-   只允许开 [FIX-delivery-表述] 与 [FIX-{node}-表述]。响应写到 {run_dir}/reviewer_responses/final_delivery.md 的格式。""")
+   只允许开 [FIX-delivery-表述] 与 [FIX-{node}-表述]。响应写到 {run_dir}/reviewer_responses/final_delivery.md 的格式。"""
    ```
 
 3. 响应落 `{run_dir}/reviewer_responses/final_delivery.md`。有 FIX → 按 Step 3 落地(表述类派修正 agent、交付类主 agent 改模板)

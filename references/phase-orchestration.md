@@ -3,9 +3,9 @@
 > 本文件由主智能体在 Step 3 加载,详细说明每个 Phase 的调度顺序、工具调用方式、判定标准。SKILL.md 只引用本文件不重复。
 >
 > **关键设计**(对照 v5.1.x 失败教训):
-> - ❌ **不使用 `Agent(resume=...)` 参数** — 该参数不存在,Agent 工具实际 schema 仅含 description/isolation/model/prompt/run_in_background/subagent_type
+> - ❌ **不「续接」上一个子代理** — 没有哪家 harness 支持(Claude Code 的 Agent 没有 resume);派活写法 `▶ 派 X(并行|前台)`,各家翻译见 `references/harness.md`
 > - ✅ **Fresh-Restart with Context Injection** — 修正循环时启动全新 sub-agent,prompt 注入上轮 FIX 列表 + 已修改文件路径
-> - ✅ **自然语言 checklist + 真实工具**(Agent / Bash / Edit / Read),循环逻辑下沉到脚本
+> - ✅ **自然语言 checklist + 真实工具**(子代理 / Bash / Read),循环逻辑下沉到脚本
 >
 > **v8.0 变更**:Phase 3 由"5 个 part 串行写手"改为"判断链五节点 + 依赖图两波";报告首页与附录**机器装配**;
 > 状态落 `runs/{date}/` + `manifest.json`。Phase 7 量化监控退役(增量复查 `--review` 取而代之)。
@@ -89,8 +89,8 @@ output/_compare/{slug}/          对比组(票 10, 不属于任何一家公司)
 
 | 波 | 谁 | 产物 | 验收 |
 |:-:|---|---|---|
-| 1 | node-quality ∥ node-odds(2 个 `run_in_background=True`) | `{run_dir}/nodes/node-{quality,odds}.md` | 两条 `verdict_block --schema node-X` 退出 0 |
-| 2 | node-path ∥ node-state(2 个 `run_in_background=True`;都引用③) | `node-path.md`(含 `left_tail[].depth_pct`)· `node-state.md`(含 `critical_point`) | 两条 `verdict_block --schema node-X` 退出 0 |
+| 1 | node-quality ∥ node-odds(2 个并行) | `{run_dir}/nodes/node-{quality,odds}.md` | 两条 `verdict_block --schema node-X` 退出 0 |
+| 2 | node-path ∥ node-state(2 个并行;都引用③) | `node-path.md`(含 `left_tail[].depth_pct`)· `node-state.md`(含 `critical_point`) | 两条 `verdict_block --schema node-X` 退出 0 |
 | 3 | decision-writer(前台;只读四个 YAML 块) | `node-decision.md`(含 `gear_cap` / `front_page_intro`) | `verdict_block --schema node-decision` 退出 0 + triad 与②③④同源 + 有 🔴 必封顶 |
 | — | 装配脚本 | `assembly/assembly.json` + 主报告 md | `assemble_report_v8` 退出 0 + Top3 非空 + 无缺附录告警 |
 
@@ -111,7 +111,7 @@ output/_compare/{slug}/          对比组(票 10, 不属于任何一家公司)
 | 步 | 谁 | 命令 / 工具 | 验收 |
 |:-:|---|---|---|
 | 0 | 主 agent | `{PYBIN} -m scripts.lint_v8 --run-dir {run_dir} --artifacts-dir {artifacts_dir}` | 退出 0(fail 项全过;warn 记账不阻断) |
-| 1 | reviewer-logic ∥ reviewer-delivery(2 个 `run_in_background=True`) | Agent 工具 | 两份响应落 `{run_dir}/reviewer_responses/round_{N}_{logic,delivery}.md` |
+| 1 | reviewer-logic ∥ reviewer-delivery(2 个并行) | 子代理工具(见 `references/harness.md`) | 两份响应落 `{run_dir}/reviewer_responses/round_{N}_{logic,delivery}.md` |
 | 2 | 主 agent | `{PYBIN} -m scripts.review_loop --run-dir {run_dir} --round {N}` | 读 JSON:`overall_pass` / `needs_new_round` / `next_step` / `restart_writers` / `restart_scope` |
 | 3 | 修正 agent(判断类 + 表述类都派写手,并行)+ 主 agent 只改 HTML 模板 | Agent | 改完**必须**重跑 `assemble_report_v8` + `lint_v8`;主 agent 不 Edit 节点 md |
 | 4 | reviewer-delivery 终检模式(1 个,HTML 走查一次) | `build_html` → Agent | `final_delivery.md` 落盘;FIX 落地后重出片 |
@@ -144,10 +144,10 @@ R4 装配带 `--prev-run-dir` + `--metric-deltas`(首页「较上版变化」区
 ## 主 agent 通用规则(贯穿全 Phase)
 
 1. **不读 sub-agent 响应全文**,直接从响应文本读关键字段(`**判定**:` / `**verdict**:` / `[FIX-` 等)
-2. **修正循环只能 fresh-restart**,不要尝试 `Agent(resume=...)`(该参数不存在)
+2. **修正循环只能 fresh-restart**,不要尝试续接上一个子代理(没有哪家 harness 支持)
 3. **状态持久化**:要跨循环保留的状态(reviewer 响应 / FIX 列表 / diff signature)一律写文件(`{run_dir}/reviewer_responses/…`),不靠 context 记忆
 4. **日志双层**:Phase 启停 / sub-agent 完成 / 判定 / 转人工,用 Edit 追加 `main-log.md` 一行(`- {yymmdd hhmm} {事件}`)
-5. **失败处理**:先 fresh-restart 同 subagent_type 一次;仍失败 → PushNotification + `{run_dir}/_failure_report.md`(累计 FIX / 响应路径 / main-log tail 30 行 / 建议下一步)
+5. **失败处理**:先 fresh-restart 同 subagent_type 一次;仍失败 → 通知用户(方式见 `references/harness.md`)+ `{run_dir}/_failure_report.md`(累计 FIX / 响应路径 / main-log tail 30 行 / 建议下一步)
 
 ---
 

@@ -1,6 +1,12 @@
 ---
 name: company-analysis
-description: "分析单个上市公司(A股/美股/港股),生成投资分析报告 — 判断链五节点(质地/状态/赔率/路径/怎么办)+ 首页一眼决断 + 附录A-E。用户输入公司名(如 /company-analysis 实丰文化 002862)即触发。"
+description: "分析单个上市公司(A股/美股/港股),生成投资分析报告 — 判断链五节点(质地/状态/赔率/路径/怎么办)+ 首页一眼决断 + 附录A-E。用户输入公司名(如 /company-analysis 实丰文化 002862)、说「分析/复查/对比某公司」即触发。"
+license: MIT
+compatibility: "需要 Python 3.11+、网络、TUSHARE_TOKEN(A 股/港股);需要能派子代理的 agent:Claude Code / OpenCode(含 DeepSeek)/ Codex(多代理模式),对照表见 references/harness.md"
+metadata:
+  argument-hint: "<company-name> [ticker] [--review | --compare]"
+  version: "8.13"
+  opencode/slash: "true"
 argument-hint: <company-name>
 ---
 
@@ -14,7 +20,7 @@ argument-hint: <company-name>
 
 - **路由**:解析用户输入,锁定 `{company}` / `{market}` / `{ticker}` / `{amount}`
 - **维护** `output/{company}/main-log.md`(yymmdd hhmm 双层日志,贯穿全程)
-- **启动 sub-agent**:用 `Agent` 工具,详见 `references/phase-orchestration.md`
+- **启动 sub-agent**:用本 harness 的子代理工具(Claude Code = `Agent`;OpenCode / Codex 对照表见 `references/harness.md`),详见 `references/phase-orchestration.md`
 - **接收 sub-agent 响应**:直接从响应文本读关键字段(`**判定**:` / `**verdict**:` / `- [FIX-`)——响应就在你上下文里,**无需 shell grep, 也不读全文**
 - **复核机器门控**:每个 Phase 自己跑一次门控命令(`check_phase2` / `verdict_block` / 装配退出码),不信任 sub-agent 自证
 - **跑装配脚本**:首页决断卡 / 赚钱面板 / Top3 / 附录 A-E 全部由 `assemble_report_v8` 生成
@@ -30,19 +36,24 @@ argument-hint: <company-name>
 - ❌ **不手写** 首页决断卡 / 面板 / Top3 / 附录(机器装配,零人工抄写)
 - ❌ **不读** sub-agent 响应全文
 - ❌ **不在响应里** 粘贴 Bash stdout / Tushare DataFrame / WebSearch 完整结果
-- ❌ **不尝试 `Agent(resume=...)`** — 该参数**不存在**,会被忽略 → sub-agent 起新实例丢上下文。修正循环用 fresh-restart + 把上轮 FIX 注入新 prompt
+- ❌ **不尝试「续接」上一个 sub-agent**(Claude Code 的 Agent 没有 resume,别家也没有)→ 修正循环用 fresh-restart + 把上轮 FIX 注入新 prompt
 
 ---
 
-## 🔌 调度协议(Agent 工具真实 schema)
+## 🔌 调度协议(与 harness 无关)
 
-`Agent` 工具的真实参数:`description / isolation / model / prompt / run_in_background / subagent_type`。**没有 `resume`**。
+编排文档里派子代理一律写成:
 
-```python
-Agent(subagent_type="X", prompt="...", run_in_background=True/False, description="...")
+```text
+▶ 派 X(说明,并行|前台)
+prompt = f"""…"""
 ```
 
-**给 sub-agent 传路径与解释器**:每个 prompt 都要写明 `{run_dir}` / `{artifacts_dir}` / Step 0 选定的 `{PYBIN}`。
+你把它翻译成本 harness 的工具:Claude Code = `Agent(subagent_type="X", run_in_background=…, prompt=…)`;
+OpenCode = Task 工具 / `@X`;Codex = 多代理模式按名 spawn。**对照表与各家限制:`references/harness.md`**。
+三家共同点:子代理没有记忆、没有「续接」。
+
+**给 sub-agent 传路径与解释器**:每个 prompt 都要写明 `{skill_root}`(本目录)/ `{run_dir}` / `{artifacts_dir}` / Step 0 选定的 `{PYBIN}`。
 
 **修正循环规则**(Fresh-Restart with Context Injection):重新启动同 subagent_type 的 sub-agent,prompt 注入上轮判定与 FIX/报错原文,并写明"只看当前文件状态"。
 
@@ -101,9 +112,9 @@ Agent(subagent_type="X", prompt="...", run_in_background=True/False, description
 > 所以每条命令都要写成 `cd "<skill 根目录>" && {PYBIN} -m scripts.X ...`,给 sub-agent 的 prompt 里也要这么写。
 > 忘了 cd 的典型症状是**改了没生效**:脚本/安装在错的目录里静默失败,你却以为代码写错了(票 08 实测踩到 —— `install.ps1` 用相对路径跑,没报错但根本没装上,后面出片一直在用旧模板)。
 
-**② cd 到本 skill 根目录**(SKILL.md 所在目录, `{PYBIN} -m scripts.X` 需从这里跑):
-- Mac / Linux:`~/.claude/skills/company-analysis`
-- Windows:`%USERPROFILE%\.claude\skills\company-analysis`
+**② cd 到本 skill 根目录 `{skill_root}`**(SKILL.md 所在目录, `{PYBIN} -m scripts.X` 需从这里跑):
+- Claude Code:`~/.claude/skills/company-analysis`(Windows `%USERPROFILE%\.claude\skills\company-analysis`)
+- OpenCode / Codex:`~/.agents/skills/company-analysis`
 
 **③ 自检**:
 
@@ -227,7 +238,8 @@ Phase 1 (data-collector) → Phase 2 (doc-analyst)
 
 | 文件 | 用途 |
 |---|---|
-| **`references/agent-protocol.md`** ★ | **Agent 工具调度协议 + Fresh-Restart 规则 + 完成报告结构 + 日志规范** |
+| **`references/agent-protocol.md`** ★ | **子代理调度协议 + Fresh-Restart 规则 + 完成报告结构 + 日志规范** |
+| `references/harness.md` | 跨 harness 对照表:`▶ 派 X` 在 Claude Code / OpenCode(DeepSeek)/ Codex 里各是什么工具、路径、已知限制 |
 | **`references/phase-orchestration.md`** ★ | **每个 Phase 详细 checklist + 目录结构约定** |
 | **`phases/phase3-node-writing.md`** ★ | **Phase 3 执行细则:波次 / prompt 模板 / 逐波验收 / 装配** |
 | `references/judgment-chain.md` | v8 判断链手册(写手全员必读;主 agent 需要时查一处权威表与装配规则) |
@@ -267,6 +279,7 @@ Phase 1 (data-collector) → Phase 2 (doc-analyst)
 | `scripts/assembly.py` + `scripts/assemble_report_v8.py` ★ | 摘要层装配 + 报告总装 |
 | `scripts/lint_v8.py` ★ | 质量环机器门控(R1-R16:schema / 红旗闭环 / 数字唯一 home / 合理价区间 / 封顶 / 越权 / 报告同步 / 推导闭合 / 证伪同源 / 三元组同源 / ③锚引用过期…) |
 | `scripts/review_loop.py` | 两 reviewer 判定合并 + FIX 分诊(两类都→修正 agent,`restart_scope` 定权限)+ PASS 线(判断类归零)+ `next_step` |
+| `scripts/export_agents.py` | `agents/*.md` → `adapters/{codex,opencode}/`(别家子代理文件由它生成,测试守同步) |
 | `scripts/lessons_manager.py` | 全局经验库 (append / recent) |
 | `scripts/compare.py` ★ | 产业链对比 `--compare`:成组 / 并排装配(零新判断)/ 组内裁决四条机检(产 `compare.json`) |
 | `scripts/build_html.py` + `update_index.py` | HTML + 主页联动(`--compare-slug` 出对比页与站点条目) |

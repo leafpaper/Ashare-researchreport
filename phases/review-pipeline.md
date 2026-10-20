@@ -96,7 +96,7 @@
 
   ```
   {PYBIN} -m scripts.compare assemble --slug {slug}        # 上半刷新
-  → Agent(compare-judge)                                    # 下半重跑, 见 phases/compare-pipeline.md C3
+  → ▶ 派 compare-judge                                     # 下半重跑, 见 phases/compare-pipeline.md C3
   {PYBIN} -m scripts.compare assemble --slug {slug} --require-judge
   {PYBIN} -m scripts.build_html --compare-slug {slug}
   {PYBIN} -m scripts.update_index --compare-slug {slug} --repo $INVES_REPORT_DIR --force

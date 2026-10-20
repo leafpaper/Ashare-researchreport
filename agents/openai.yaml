@@ -1,0 +1,7 @@
+# Codex 读的 skill 元数据(Agent Skills 可选文件);由 scripts/export_agents.py 生成
+interface:
+  display_name: Company Analysis
+  short_description: 上市公司投资分析:判断链五节点 + 首页决断卡 + 附录A-E(A股/美股/港股)
+  default_prompt: /company-analysis <公司名> [代码] [--review | --compare]
+policy:
+  allow_implicit_invocation: true

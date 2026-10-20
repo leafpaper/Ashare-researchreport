@@ -58,12 +58,9 @@
 
 ## C3: 组内裁决(唯一判断节点)
 
-```python
-Agent(
-    subagent_type="compare-judge",
-    run_in_background=False,
-    description="compare judge",
-    prompt=f"""产出组内裁决。
+```text
+▶ 派 compare-judge(compare judge,前台)
+prompt = f"""产出组内裁决。
 slug      = {slug}
 group_dir = output/_compare/{slug}/
 证据源    = {group_dir}/compare.json(**你唯一能读的文件**, 别读任何一家的报告)

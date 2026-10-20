@@ -1,29 +1,29 @@
 # Agent 调度协议 (v8.0)
 
-主智能体(SKILL.md)与所有 sub-agent 之间的统一调度规范。**已对照 Claude Code 真实工具 schema 修订** — v5.1.0 ~ v5.1.2 的 `Agent(resume=...)` / ID 探测 / 伪函数协议**已删除**,因为 Agent 工具实际不支持。
+主智能体(SKILL.md)与所有 sub-agent 之间的统一调度规范。写法与 harness 无关(`▶ 派 X(并行|前台)`),
+每家 harness 怎么翻译见 `references/harness.md`。v5.1.0 ~ v5.1.2 的「续接上一个子代理」/ ID 探测 / 伪函数协议**已删除**——
+没有哪家 harness 支持,子代理之间不共享记忆。
 
 **v8.0 的 sub-agent 名册**(10 个):`data-collector` / `doc-analyst` / `node-quality` / `node-odds` / `node-path` / `node-state` / `decision-writer` / `reviewer-logic` / `reviewer-delivery` / `compare-judge`(票 10,只在 `--compare` 产业链对比页上场,不进单公司分析流水线)。旧的 `phase3-part{1-5}` 五个写手随判断链收敛删除;旧的 `reviewer-{narrative,valuation,redflag}` 随质量环重写删除(抄写一致性校验已无对象,红旗闭环改机检)。
 
 ---
 
-## 1. Agent 工具真实 Schema(必读)
+## 1. 派子代理的中性写法(必读)
 
-`Agent` 工具的合法参数(来源: 当前 Claude Code 实际 schema):
+```text
+▶ 派 node-odds(③赔率,并行)
+prompt = f"""…"""
+```
 
-| 参数 | 类型 | 说明 |
+| 要素 | 含义 | Claude Code 里是 |
 |---|---|---|
-| `description` | string | 短描述(3-5 词),给 UI 显示 |
-| `prompt` | string | 给 sub-agent 的任务 prompt(必填) |
-| `subagent_type` | string | sub-agent 类型(如 `data-collector`)(必填) |
-| `run_in_background` | bool | 后台跑(true)/ 前台等(false) |
-| `isolation` | string (可选) | `"worktree"` 创建临时 git worktree |
-| `model` | string (可选) | 覆盖 sub-agent 模型 |
+| `X` | 子代理定义名(三家 harness 同名) | `Agent` 工具的 `subagent_type` |
+| `并行` / `前台` | 不等 / 等它回来 | `run_in_background=True/False` |
+| `prompt` | 任务 prompt,**必带** `{skill_root}` / `{run_dir}` / `{artifacts_dir}` / `{PYBIN}` | `prompt` |
+| 完成报告 | 子代理最终响应末尾的固定结构(§5) | task-notification 带回 |
 
-**⚠️ `Agent` 工具没有以下参数**(v5.1.0-v5.1.2 错误地引用过它们):
-- ❌ `resume` — 不存在。每次 `Agent()` 调用都启动 fresh sub-agent
-- ❌ `agent_id` — 不存在
-
-文档原话:**"A new Agent call starts a fresh agent with no memory of prior runs."**
+**没有「续接」**:每次派都是全新实例,没有上一次的记忆(Claude Code 的 Agent 没有 resume / agent_id;OpenCode 的 Task、
+Codex 的 spawn 也一样)。要改就重派 + 把上轮 FIX/报错原文注入新 prompt。OpenCode / Codex 的对应工具与路径:`references/harness.md`。
 
 ---
 
@@ -44,11 +44,8 @@
 
 ```python
 # 主 agent 复核 verdict_block 时拿到报错原文(sub-agent 自证 PASS 也不算数)
-Agent(
-    subagent_type="node-odds",
-    run_in_background=False,
-    description="node-odds retry",
-    prompt=f"""重写③赔率节点。
+▶ 派 node-odds(node-odds retry,前台)
+prompt = f"""重写③赔率节点。
 run_dir       = output/{company}/runs/{date}/
 artifacts_dir = output/{company}/
 company={company} ticker={ticker} market={market} date={date} PYBIN={PYBIN}
@@ -120,7 +117,7 @@ Fresh-restart 每次重传完整任务描述 + 上轮 FIX(~500-2000 token),换�
 
 ### 4.1 Phase 3 波次门控(v8)
 
-1. 每波的写手用同一批 prompt 字段(`run_dir` / `artifacts_dir` / `company` / `ticker` / `market` / `date` / `PYBIN`),第一、二波各两个 `run_in_background=True` 并行,第三波前台。
+1. 每波的写手用同一批 prompt 字段(`run_dir` / `artifacts_dir` / `company` / `ticker` / `market` / `date` / `PYBIN`),第一、二波各两个并行,第三波前台。
 2. **主 agent 复核 schema**:`{PYBIN} -m scripts.verdict_block --schema node-X --file {run_dir}/nodes/node-X.md`;退出 0 才进下一波(sub-agent 的自证不算数)。
 3. 波次顺序由 `{PYBIN} -m scripts.node_graph`(全量 `--all` / 增量 `--nodes …`)算出,不手写。
 4. 单个写手最多 fresh-restart 1 次;仍红 → 转人工,**不许主 agent 手改 YAML 块**。
@@ -130,7 +127,7 @@ Fresh-restart 每次重传完整任务描述 + 上轮 FIX(~500-2000 token),换�
 完整步骤见 `phases/phase6-review-publish.md`。**关键不变量**:
 
 1. **机器先于人**:`{PYBIN} -m scripts.lint_v8 --run-dir {run_dir}` 退出 0 之后才派 reviewer
-2. **两个 reviewer 并行**(`reviewer-logic` ∥ `reviewer-delivery`,`run_in_background=True`),不是串行
+2. **两个 reviewer 并行**(`reviewer-logic` ∥ `reviewer-delivery`,并行派出),不是串行
 3. 主 agent **必须保存**每份响应到 `{run_dir}/reviewer_responses/round_{N}_{logic,delivery}.md`(不依赖 context)
 4. **判定 + FIX 分诊** 由 `scripts/review_loop.py` 处理,主 agent 只看它的 JSON(`overall_pass` / `needs_new_round` /
    `next_step` / `restart_writers` / `restart_scope` / `delivery_fixes` / `diff_repeat`)
@@ -217,7 +214,7 @@ test -n "$lessons" && {PYBIN} -m scripts.lessons_manager append \
 ```
 # 注入近 30 天 lessons
 recent=$({PYBIN} -m scripts.lessons_manager recent --category <sub_agent_name> --days 30)
-# 把 $recent 拼到下次 Agent() 的 prompt 头部
+# 把 $recent 拼到下次派子代理的 prompt 头部
 ```
 
 ---
@@ -232,7 +229,7 @@ recent=$({PYBIN} -m scripts.lessons_manager recent --category <sub_agent_name> -
 
 ### 转人工触发
 
-主 agent 用 `PushNotification` 通知用户 + 保存累计上下文到 `output/{company}/_failure_report.md`:
+主 agent 按本 harness 的方式通知用户(Claude Code 为 PushNotification,其它见 `references/harness.md`)+ 保存累计上下文到 `output/{company}/_failure_report.md`:
 - 累计 FIX 列表
 - 各 sub-agent 响应路径
 - 当前 main-log.md tail 30 行

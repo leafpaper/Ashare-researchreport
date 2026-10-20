@@ -1,6 +1,6 @@
 # YEZHI Company Analysis
 
-**在 Claude Code 里输入一个公司名，得到一份能直接读的投资分析报告。**
+**在 Claude Code、OpenCode(可接 DeepSeek)或 Codex 里输入一个公司名，得到一份能直接读的投资分析报告。**
 
 它会自己去拉财报数据、下载并精读年报原文、跑完会计审计框架，然后把结论收敛成一张五行决断卡：
 **是不是好公司 / 在变好吗 / 贵不贵 / 扛得住吗 / 现在该怎么办**。
@@ -9,7 +9,7 @@
 
 <p align="center">
   <a href="https://github.com/leafpaper/claude-company-analysis/actions/workflows/tests.yml"><img src="https://github.com/leafpaper/claude-company-analysis/actions/workflows/tests.yml/badge.svg" alt="tests"></a>
-  <img src="https://img.shields.io/badge/version-v8.10-blue" alt="version">
+  <img src="https://img.shields.io/badge/version-v8.13-blue" alt="version">
   <img src="https://img.shields.io/badge/markets-A%E8%82%A1%20%7C%20%E7%BE%8E%E8%82%A1%20%7C%20%E6%B8%AF%E8%82%A1-green" alt="markets">
   <img src="https://img.shields.io/badge/audit-11%20frameworks-orange" alt="frameworks">
   <img src="https://img.shields.io/badge/gate-lint%2018%20%2B%202%20reviewer-red" alt="gate">
@@ -138,7 +138,7 @@
 
 | 要求 | 说明 |
 |---|---|
-| **Claude Code** | 这是一个 Claude Code 的 skill，不是网页版 Claude 或独立命令行程序。装好后在 Claude Code 对话里用 |
+| **一个能派子代理的 agent** | 这是一个 [Agent Skills](https://agentskills.io) 格式的 skill，不是网页版聊天或独立命令行程序。实跑验证过的是 **Claude Code**；**OpenCode**（DeepSeek 走它）与 **Codex**（需打开多代理模式）由同一份源生成各自的子代理文件，作者机器上未端到端验证，见 [`references/harness.md`](./references/harness.md) |
 | **Python 3.11+** | 数据层跑在本地 Python，不占用模型上下文 |
 | **Tushare token** | 分析 A 股 / 港股必需；只分析美股可以不配 |
 | **一次全量要多久** | 本机实测约 2 小时（采集 5 分钟 → 精读 20 分钟 → 判断链三波 25 分钟 → 质量环每轮约 10 分钟，最多三轮）。`--review` 约三分之一 |
@@ -146,17 +146,26 @@
 
 ### 1. 装 skill
 
+不带参数会自动探测 PATH 上有哪家 CLI；也可以点名 `claude` / `codex` / `opencode` / `all`。
+
 ```bash
 # Mac / Linux
 curl -fsSL https://raw.githubusercontent.com/leafpaper/claude-company-analysis/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/leafpaper/claude-company-analysis/main/install.sh | bash -s -- opencode
 ```
 ```powershell
-# Windows(在克隆下来的仓库根目录里跑)
+# Windows(在克隆下来的仓库根目录里跑;参数同上)
 powershell -ExecutionPolicy Bypass -File .\install.ps1
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Target codex
 ```
 
-装到 `~/.claude/skills/company-analysis/`，10 个 sub-agent 装到 `~/.claude/agents/company-analysis/`。
-**装完要重启 Claude Code**，sub-agent 名册才会生效。
+| 目标 | skill 本体 | 10 个子代理 | 装完 |
+|---|---|---|---|
+| Claude Code | `~/.claude/skills/company-analysis/` | `~/.claude/agents/company-analysis/*.md` | 重启 Claude Code，`/company-analysis …` |
+| OpenCode | `~/.agents/skills/company-analysis/` | `~/.config/opencode/agents/*.md` | `/company-analysis …`；DeepSeek 先 `/connect` 接 `deepseek` |
+| Codex | 同上（共用） | `~/.codex/agents/*.toml` | 打开多代理模式后 `$company-analysis …` |
+
+子代理只在 [`agents/`](./agents/) 维护一份，OpenCode / Codex 的文件由 `scripts/export_agents.py` 生成，测试保证不漂移。
 
 ### 2. 装 Python 依赖
 
@@ -245,8 +254,9 @@ Phase 6  质量环    lint_v8 18 条 → reviewer-logic ∥ reviewer-delivery �
 | 目录 | 放什么 |
 |---|---|
 | [`SKILL.md`](./SKILL.md) | 主 agent 的调度说明书 |
-| [`agents/`](./agents/) | 10 个 sub-agent 定义：采集 / 精读 / 四个节点写手 / 决策 / 两个 reviewer / 对比裁决 |
-| [`references/`](./references/) | [判断链手册](./references/judgment-chain.md) + 四份节点手册 + HTML 规范 |
+| [`agents/`](./agents/) | 10 个 sub-agent 定义（唯一真相源）：采集 / 精读 / 四个节点写手 / 决策 / 两个 reviewer / 对比裁决 |
+| [`adapters/`](./adapters/) | 同一批子代理的 OpenCode（`.md`）与 Codex（`.toml`）版本，由 `scripts/export_agents.py` 生成 |
+| [`references/`](./references/) | [判断链手册](./references/judgment-chain.md) + 四份节点手册 + HTML 规范 + [跨 harness 对照表](./references/harness.md) |
 | [`phases/`](./phases/) | 各阶段执行细则（判断链写作、质量环发布、增量复查、产业链对比） |
 | [`scripts/`](./scripts/) | 33 个 Python 脚本：数据采集 / 审计 / 装配 / 15 份 JSON Schema / lint / 出片 |
 | [`scripts/tests/`](./scripts/tests/) | 524 个单元测试 |
@@ -261,6 +271,8 @@ Phase 6  质量环    lint_v8 18 条 → reviewer-logic ∥ reviewer-delivery �
 
 | 版本 | 关键变化 |
 |---|---|
+| **v8.13** | 装上就能用：Agent Skills 标准 frontmatter、`install.sh` 一键装到 Claude Code / OpenCode / Codex、子代理文件一源三出、编排文档去掉 Claude 私有伪代码 |
+| **v8.11** | 质量环省钱四条：干净会话硬规则 / 主 agent 不改节点 / PASS 线 = 判断类归零 / HTML 只在终检读一次 |
 | **v8.10** | 首个轻资产订阅制样本（金山办公）打出 5 个采集缺陷 + 6 条流水线修补：PDF 把交叉引用当正文、新红旗「投资收益占营业利润过高」、合同负债藏在其他非流动负债里、lint 新增 R18、附录C 不再替⑤发号施令 |
 | **v8.9** | R17 已兑现倍数不超增长退出；技术面并入附录C；红旗 id 归一化（数据刷新不再制造假变化） |
 | **v8.5** | 首页判断卡嵌套链接被浏览器拆成九张（线上报告实测）；R15 三元组同源 / R16 价格区间引用过期 |

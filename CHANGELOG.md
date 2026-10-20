@@ -4,6 +4,26 @@
 
 ---
 
+## [v8.13] — 2026-10-21 — 装上就能用:Claude Code / OpenCode(DeepSeek)/ Codex
+
+**起因**:用户要的是「和别的 skill 一样,给个 token、交给 Codex 或 DeepSeek 装就能用」,不是改架构。
+目录结构本来就是 [Agent Skills](https://agentskills.io/specification) 布局,scripts / references / schemas 全部与 harness 无关;
+只认 Claude Code 的是编排层(`Agent(subagent_type=…)` 伪代码 22 处、`run_in_background` 23 处)与 `agents/*.md` 的私有 frontmatter。
+
+- **SKILL.md frontmatter 按标准补齐**:`license` / `compatibility` / `metadata`(`argument-hint` / `version` / `opencode/slash`);
+  顶层 `argument-hint` 保留给 Claude Code。
+- **一源三出**:新增 `scripts/export_agents.py`,从 `agents/*.md` 生成 `adapters/opencode/agents/*.md`
+  (`mode: subagent` + `permission` 由 tools/disallowedTools 映射)与 `adapters/codex/agents/*.toml`
+  (`name / description / developer_instructions`)+ Codex 读的 `agents/openai.yaml`。不导出 `model`(别家由会话定)。
+  `test_export_agents.py` 5 条:生成物与源同步(手改 adapters/ 判红)、TOML / YAML 可解析、权限映射。
+- **安装脚本按目标装**:`install.sh [claude|codex|opencode|all]`(不带参数自动探测 PATH 上的 CLI),改为下载仓库 tarball 整目录拷,
+  数量从源算、不再写死清单(以前漏过 schema 与 phase);**顺手修了 Mac/Linux 版从不把子代理装到 `~/.claude/agents/` 的老 bug**。
+  `install.ps1 -Target …` 同样三目标;`uninstall.sh` 三处都清。
+- **编排文档去 Claude 私有写法**:派子代理统一写成 `▶ 派 X(说明,并行|前台)` + `prompt = …`;
+  新增 `references/harness.md` 对照表(各家工具 / 路径 / 等法 / 通知 / 已知限制)。判断链与手册一字未动。
+- **诚实标注**:只有 Claude Code 实跑过完整流水线;Codex 多代理是实验功能、桌面端有认不出自定义子代理的用户报告;
+  DeepSeek 没有自己的 harness,走 OpenCode provider,换模型后第一次跑建议全量。
+
 ## [v8.12] — 2026-10-16 — 写手模型钉死 + 记进 manifest
 
 **起因**:十个 agent 原先都是 `model: inherit`,跟着主会话走。两个后果:
