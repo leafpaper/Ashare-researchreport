@@ -1,11 +1,11 @@
 ---
 name: company-analysis
-description: "分析单个上市公司(A股/美股/港股),生成投资分析报告 — 判断链五节点(质地/状态/赔率/路径/怎么办)+ 首页一眼决断 + 附录A-E。用户输入公司名(如 /company-analysis 实丰文化 002862)、说「分析/复查/对比某公司」即触发。"
+description: "A股研报:分析一家上市公司(A股/港股/美股),输出决断卡与完整研报 — 是不是好公司 / 在变好吗 / 贵不贵 / 扛得住吗 / 现在该怎么办。用户给出公司名或股票代码、说「分析 / 看看 / 研究 / 复查 / 对比 某公司」即触发(如 /company-analysis 贵州茅台 600519.SH)。"
 license: MIT
 compatibility: "需要 Python 3.11+、网络、TUSHARE_TOKEN(A 股/港股);需要能派子代理的 agent:Claude Code / OpenCode(含 DeepSeek)/ Codex(多代理模式),对照表见 references/harness.md"
 metadata:
   argument-hint: "<company-name> [ticker] [--review | --compare]"
-  version: "8.13"
+  version: "8.14"
   opencode/slash: "true"
 argument-hint: <company-name>
 ---
