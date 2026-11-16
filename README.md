@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="https://github.com/leafpaper/Ashare-researchreport/actions/workflows/tests.yml"><img src="https://github.com/leafpaper/Ashare-researchreport/actions/workflows/tests.yml/badge.svg" alt="tests"></a>
-  <img src="https://img.shields.io/badge/version-v8.15-blue" alt="version">
+  <img src="https://img.shields.io/badge/version-v8.15.1-blue" alt="version">
   <img src="https://img.shields.io/badge/markets-A%E8%82%A1%20%7C%20%E6%B8%AF%E8%82%A1%20%7C%20%E7%BE%8E%E8%82%A1-green" alt="markets">
   <img src="https://img.shields.io/badge/agents-Claude%20Code%20%7C%20OpenCode%20%7C%20Codex-orange" alt="agents">
   <img src="https://img.shields.io/badge/license-MIT-lightgrey" alt="license">
@@ -196,6 +196,7 @@ Phase 6  质量环    lint_v8 18 条 → reviewer-logic ∥ reviewer-delivery �
 
 | 版本 | 关键变化 |
 |---|---|
+| **v8.15.1** | 立讯增量复查终检八条:章首判定先于图、较上版变化只写要点、首屏去流水线标签、Top3 同主题去重、分部表拆表与表头中文、附录洗写手指令 |
 | **v8.15** | 立讯增量复查评审十类交付缺陷：最新期按报告期判、红旗人话标题与更正通道、较上版变化说人话并标期别、分部假跨档、北向不算内部人 |
 | **v8.14** | 改名「A股研报」，README 重写，仓库改名 `Ashare-researchreport` |
 | **v8.13** | 装上就能用：Agent Skills 标准 frontmatter、一键装到 Claude Code / OpenCode / Codex、子代理文件一源三出 |
