@@ -7,15 +7,18 @@
   · Top3 = 红旗清单两源同池机器带出(red_flags.top3);
   · 主页 metadata = 行动档位人话(决策 verdict)+ 质地字段;
   · 变化区块 = 新旧 YAML 块 diff(增量复查票 09 直接复用)。
+  · 读者看得到的档位一律过 gear_plain()(链手册 §4.1 人话词典), 契约枚举只留给机器。
 
 产物过 assembly.schema.json; 渲染(首页/五章/附录A-E)在 assemble_report_v8。
 """
 from __future__ import annotations
 
+import difflib
 import re
 from pathlib import Path
 
 from . import derivation
+from . import periods
 from . import red_flags as rf
 from . import verdict_block
 
@@ -44,6 +47,24 @@ PANEL_CONCLUSION_QUESTIONS = {"biz_model": "生意模式赚钱吗", "quality_tru
 # 行动档位的三档态度带(进攻/观望/撤退)。「跨两档」= 跨越两个带(如 核心仓→回避),
 # 增量复查硬规则 2 用它判「建议全量重跑」; 东山中报场景 A(等证据临界→回避)= 跨一档, 不触发。
 GEAR_BANDS = {"核心仓": 0, "期权仓": 0, "等证据临界": 1, "不追高": 1, "减仓": 2, "回避": 2}
+
+# 行动档位: 契约枚举(链手册 §2.2, YAML 里的 action_gear)→ 读者面叫法(链手册 §4.1 人话词典「行动档位(六档)」)。
+# 同一档在报告里只许有一个叫法:⑤正文按词典写「先观察等证据」, 首页区块却直接印枚举「等证据临界」,
+# 立讯 11-13 评审判为同档两名(v8.15 D3)。凡读者看得到的档位(首页事实条、报告头、较上版变化)一律过这里;
+# CARD_METADATA 与站点分组仍用枚举原词(机器读)。
+GEAR_PLAIN = {
+    "核心仓": "核心仓",
+    "期权仓": "期权小仓",
+    "等证据临界": "先观察等证据",
+    "不追高": "贵但好·不追高",
+    "减仓": "减仓",
+    "回避": "回避",
+}
+
+
+def gear_plain(gear: str) -> str:
+    """契约档位 → 读者面叫法(未知值原样返回)。"""
+    return GEAR_PLAIN.get(gear, gear)
 
 # 质地字段(主页卡片)= verdict 的第一个短语
 _QUALITY_FIELD_SPLIT = re.compile(r"[———,,;;((\(]")
@@ -287,40 +308,136 @@ def flag_change_is_soft(item: dict) -> bool:
     return any(lv in (item.get("note") or "") for lv in SOFT_FLAG_LEVELS)
 
 
+# 提名红旗 id 尾巴上的期别后缀(-2026h1 / -2026q3 / -fy2025 / -20261110): 写手给**延续性**风险换期别时
+# 只换这一截(立讯 11-13: state-growth-quality-2026h1 → state-growth-quality-2026q3)。去掉后相同 = 同一风险族。
+_PERIOD_SUFFIX = re.compile(
+    r"[-_](?:fy)?(?:19|20)\d{2}(?:[-_]?(?:q[1-4]|h[12]|fy|a|\d{2}(?:\d{2})?))?$", re.IGNORECASE
+)
+
+
+def flag_family(flag_id: str) -> str:
+    """提名红旗的「风险族」= id 去掉期别后缀(可叠加, 如 -2026-h1)。"""
+    base = str(flag_id or "")
+    while True:
+        new = _PERIOD_SUFFIX.sub("", base)
+        if new == base or not new:
+            return base
+        base = new
+
+
+def _flag_label(flag: dict) -> str:
+    # 读者面文字: 脚本条用人话标题(display_title), 不印「Z=2.837」这类规则名
+    return flag.get("display_title") or flag.get("title") or flag.get("id", "")
+
+
 def _flag_changes(before: list[dict], after: list[dict]) -> list[dict]:
+    """红旗按 id diff: 新增 / 解除 / 级别变化 / **延续**(v8.15 D4)。
+
+    延续 = 同一节点、同为提名、id 去掉期别后缀后相同(flag_family)—— 写手给持续存在的风险换了期别,
+    旧 diff 会报成「解除一条 + 新增一条」, 读者以为那条风险解除了。现在合成一条 change="replaced",
+    `replaces` 指向上版 id。脚本红旗的 id 不含期别(只由 framework + signal 骨架决定), 不参与这条。
+    """
     old = {f["id"]: f for f in before}
     new = {f["id"]: f for f in after}
+    added = [fid for fid in new if fid not in old]
+    gone = [fid for fid in old if fid not in new]
+
+    successor: dict[str, str] = {}             # 新 id → 上版 id
+    claimed: set[str] = set()
+    for fid in added:
+        flag = new[fid]
+        if flag.get("source") != "nomination":
+            continue
+        fam = flag_family(fid)
+        for oid in gone:
+            prev = old[oid]
+            if (oid not in claimed and prev.get("source") == "nomination"
+                    and prev.get("node") == flag.get("node") and flag_family(oid) == fam):
+                successor[fid] = oid
+                claimed.add(oid)
+                break
+
     changes = []
     for fid, flag in new.items():
-        if fid not in old:
+        if fid in successor:
+            prev = old[successor[fid]]
+            level_txt = (f";级别 {prev['level']}→{flag['level']}"
+                         if prev.get("level") != flag.get("level") else "")
+            changes.append({
+                "id": fid, "change": "replaced", "replaces": prev["id"], "level": flag["level"],
+                "note": f"{flag['level']} {_flag_label(flag)}(接替上版「{_flag_label(prev)}」{level_txt})",
+            })
+        elif fid not in old:
             changes.append({"id": fid, "change": "triggered", "level": flag["level"],
-                            "note": f"{flag['level']} {flag['title']}"})
+                            "note": f"{flag['level']} {_flag_label(flag)}"})
         elif old[fid]["level"] != flag["level"]:
             changes.append({
                 "id": fid,
                 "change": "level_changed",
                 "level": flag["level"],
-                "note": f"{flag['title']}:{old[fid]['level']}→{flag['level']}",
+                "note": f"{_flag_label(flag)}:{old[fid]['level']}→{flag['level']}",
             })
     for fid, flag in old.items():
-        if fid not in new:
+        if fid not in new and fid not in claimed:
             changes.append({"id": fid, "change": "resolved", "level": flag["level"],
-                            "note": f"{flag['level']} {flag['title']}"})
+                            "note": f"{flag['level']} {_flag_label(flag)}"})
     return changes
+
+
+def _cond_key(text: str) -> str:
+    return re.sub(r"\s+", "", str(text or ""))
+
+
+# 证伪条件匹配:写手重评时常顺手改措辞(补一个数、换个标点), 逐字比对会把上版已触发的那条
+# 当成「本轮新触发」(和④正文「本轮新亮两条、累计三条」对不上)。先归一空白逐字比, 再退到高相似度。
+_COND_SIMILARITY = 0.9
+
+
+def _match_condition(cond: str, prev: dict[str, bool]) -> bool | None:
+    key = _cond_key(cond)
+    if key in prev:
+        return prev[key]
+    best, best_ratio = None, 0.0
+    for k, was in prev.items():
+        ratio = difflib.SequenceMatcher(None, key, k).ratio()
+        if ratio > best_ratio:
+            best, best_ratio = was, ratio
+    return best if best_ratio >= _COND_SIMILARITY else None
 
 
 def _falsification_changes(before: dict | None, after: dict | None) -> list[dict]:
     if not before or not after:
         return []
-    old = {f["condition"]: bool(f.get("triggered")) for f in before.get("falsifications") or []}
+    old = {_cond_key(f["condition"]): bool(f.get("triggered")) for f in before.get("falsifications") or []}
     out = []
     for item in after.get("falsifications") or []:
         cond, now = item["condition"], bool(item.get("triggered"))
-        was = old.get(cond)
+        was = _match_condition(cond, old)
         if now and not was:
             out.append({"condition": cond, "change": "triggered"})
         elif was and not now:
             out.append({"condition": cond, "change": "cleared"})
+    return out
+
+
+def _falsification_tally(after: dict | None, fals_changes: list[dict]) -> dict:
+    """证伪口径与④对齐:本轮新触发 vs 累计已触发(上版已触发、本版仍触发的不算新增)。"""
+    total = sum(1 for f in (after or {}).get("falsifications") or [] if f.get("triggered"))
+    new = sum(1 for c in fals_changes if c["change"] == "triggered")
+    return {"triggered_total": total, "triggered_new": new, "carried_over": max(total - new, 0)}
+
+
+def _with_period_labels(delta: dict) -> dict:
+    """指标 delta 补人话期别(triage 带了 before_period / after_period 才有); 期长不同给一句提示。"""
+    out = dict(delta)
+    basis = delta.get("period_basis") or "report"
+    if delta.get("before_period"):
+        out["before_label"] = periods.period_label(delta["before_period"], basis)
+    if delta.get("after_period"):
+        out["after_label"] = periods.period_label(delta["after_period"], basis)
+    note = periods.period_note(delta.get("before_period"), delta.get("after_period"), basis)
+    if note:
+        out["period_note"] = note
     return out
 
 
@@ -331,7 +448,7 @@ def build_change_block(
     flags: list[dict],
     metric_deltas: list[dict] | None = None,
 ) -> dict:
-    """「较上版变化」区块:新旧 YAML 块 diff, 首句人话答「阿尔法变了没」。
+    """「较上版变化」区块:新旧 YAML 块 diff, 首句人话答「判断变了没」。
 
     硬规则 2(票 03/09):质地判定翻转 或 档位跨两档 → advised=True(照常产出, 首页明示建议全量)。
     """
@@ -344,6 +461,7 @@ def build_change_block(
     flipped = [n for n in rf.NODES if n in flip_kinds]
     flag_changes = _flag_changes(prev_flags, flags)
     fals_changes = _falsification_changes(prev_nodes.get("path"), nodes.get("path"))
+    tally = _falsification_tally(nodes.get("path"), fals_changes)
 
     reasons = []
     if flip_kinds.get("quality") == "verdict":
@@ -355,7 +473,7 @@ def build_change_block(
         reasons.append(f"质地子判定变化(判定语未变:{details})")
     distance = gear_distance(gear_before, gear_after)
     if distance >= 2:
-        reasons.append(f"行动档位跨两档({gear_before} → {gear_after})")
+        reasons.append(f"行动档位跨两档({gear_plain(gear_before)} → {gear_plain(gear_after)})")
     advice = {
         "advised": bool(reasons),
         "reason": ";".join(reasons) + ",建议全量重跑重锚" if reasons else None,
@@ -363,7 +481,7 @@ def build_change_block(
 
     return {
         "alpha_summary": _alpha_summary(
-            gear_before, gear_after, flip_kinds, flag_changes, fals_changes, nodes
+            gear_before, gear_after, flip_kinds, flag_changes, fals_changes, nodes, tally
         ),
         "gear_before": gear_before,
         "gear_after": gear_after,
@@ -373,48 +491,61 @@ def build_change_block(
         "flip_kinds": flip_kinds,
         "red_flag_changes": flag_changes,
         "falsification_changes": fals_changes,
-        "metric_deltas": list(metric_deltas or []),
+        "falsification_tally": tally,
+        "metric_deltas": [_with_period_labels(d) for d in metric_deltas or []],
         "full_rerun_advice": advice,
     }
 
 
-def _alpha_summary(gear_before, gear_after, flip_kinds, flag_changes, fals_changes, nodes) -> str:
-    """首句人话答「阿尔法变了没」——只陈述机器测得的变化, 不自产解释。
+def _alpha_summary(gear_before, gear_after, flip_kinds, flag_changes, fals_changes, nodes,
+                   tally: dict | None = None) -> str:
+    """首句人话答「判断变了没」——只陈述机器测得的变化, 不自产解释。
 
-    措辞纪律: 「翻转」只留给判定语真变的节点; 判定语未变、子判定符变的说「子判定变化」;
-    🟢/ℹ️ 不借「红旗」名头(文案与折叠组计数同源, 见 flag_change_is_soft)。
+    (字段名 alpha_summary 是契约名, 读者看不到; 首句不出现「阿尔法 / 三元组 / 节点」这类流水线词, v8.15 D3)
+    措辞纪律: 「翻转」只留给判定语真变的章; 判定语未变、子判定符变的说「子判定变化」;
+    🟢/ℹ️ 不借「红旗」名头(文案与折叠组计数同源, 见 flag_change_is_soft);
+    证伪分「本轮新触发」与「累计」, 上版已触发的不算本轮新增(与④口径一致)。
     """
+    tally = tally or _falsification_tally(nodes.get("path"), fals_changes)
     triggered = [c for c in fals_changes if c["change"] == "triggered"]
     hard = [c for c in flag_changes if not flag_change_is_soft(c)]
     soft = [c for c in flag_changes if flag_change_is_soft(c)]
     new_flags = [c for c in hard if c["change"] == "triggered"]
     resolved = [c for c in hard if c["change"] == "resolved"]
+    replaced = [c for c in hard if c["change"] == "replaced"]
     level_changed = [c for c in hard if c["change"] == "level_changed"]
     verdict_flips = [n for n, k in flip_kinds.items() if k == "verdict"]
     sub_flips = [n for n, k in flip_kinds.items() if k == "sub"]
     parts = []
     if triggered:
-        parts.append(f"证伪触发 {len(triggered)} 条({triggered[0]['condition']})")
+        parts.append(
+            f"证伪本轮新触发 {len(triggered)} 条、累计已触发 {tally['triggered_total']} 条"
+            f"(新触发:{triggered[0]['condition']})"
+        )
     if verdict_flips:
         parts.append("、".join(NODE_LABELS[n] for n in rf.NODES if n in verdict_flips) + "判定翻转")
     if sub_flips:
         parts.append("、".join(NODE_LABELS[n] for n in rf.NODES if n in sub_flips) + "子判定变化(判定语未变)")
     if gear_before != gear_after:
-        parts.append(f"档位 {gear_before}→{gear_after}")
+        parts.append(f"行动档位 {gear_plain(gear_before)}→{gear_plain(gear_after)}")
     if new_flags:
         parts.append(f"新增红旗 {len(new_flags)} 条")
     if resolved:
         parts.append(f"解除红旗 {len(resolved)} 条")
+    if replaced:
+        parts.append(f"延续上版的红旗 {len(replaced)} 条(换了新说法)")
     if level_changed:
         parts.append(f"红旗级别变化 {len(level_changed)} 条")
     if soft:
         parts.append(f"绿灯/信息更新 {len(soft)} 条")
     if not parts:
+        carried = (f",上版已触发的 {tally['triggered_total']} 条证伪仍未解除"
+                   if tally["triggered_total"] else "")
         return (
-            f"阿尔法没变:三元组与档位维持「{gear_after}」,无节点翻转、无证伪触发、无红旗增减"
-            f"(判定:{nodes['decision']['verdict']})"
+            f"判断没变:行动档位维持「{gear_plain(gear_after)}」,各章判定都没翻,"
+            f"没有新触发的证伪{carried},红旗没有增减(⑤的判定:{nodes['decision']['verdict']})"
         )
-    return "阿尔法变了:" + ";".join(parts)
+    return "判断变了:" + ";".join(parts)
 
 
 # ---------------------------------------------------------------- 总装

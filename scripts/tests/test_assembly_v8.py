@@ -121,11 +121,11 @@ class TestTop3(unittest.TestCase):
         self.assertEqual(before, after)
 
     def test_ranking_prefers_severity_then_corroboration(self):
-        """排序键 = 级别 → 组内条数 → 归属节点; 🟡 组永远排在 🟠 组之后。"""
+        """排序键 = 级别 → 组内 🔴/🟠/🟡 条数 → 归属节点; 🟡 组永远排在 🟠 组之后。"""
         levels = [rf.LEVEL_ORDER[t["level"]] for t in build()["top3"]]
         self.assertEqual(levels, sorted(levels))
         sizes = [len(t["red_flag_ids"]) for t in build()["top3"]]
-        self.assertEqual(sizes[0], 3)          # 散户组: 2 条脚本户数信号 + 1 条提名
+        self.assertEqual(sizes[0], 3)          # 散户组: 2 条 🟡 脚本户数信号 + 1 条 🟠 提名
 
     def test_top3_skips_green_and_info(self):
         """🟢/ℹ️ 不是风险, 不进 Top3(仍留在附录D)。"""
@@ -270,12 +270,18 @@ class TestChangeBlock(unittest.TestCase):
         return product["change_block"]
 
     def test_scenario_a_bearish(self):
-        """research/03 场景A:证伪触发 + 状态翻转 → 档位 等证据临界→回避,首句答「阿尔法变了」。"""
+        """research/03 场景A:证伪触发 + 状态翻转 → 档位 等证据临界→回避,首句答「判断变了」。
+
+        v8.15 D3:首句说人话(不出现「阿尔法 / 三元组」), 档位用读者面叫法(先观察等证据),
+        契约字段 gear_before/gear_after 仍是枚举原词。
+        """
         cb = self._change(fx.scenario_a_nodes())
-        self.assertTrue(cb["alpha_summary"].startswith("阿尔法变了"))
+        self.assertTrue(cb["alpha_summary"].startswith("判断变了"))
         self.assertEqual((cb["gear_before"], cb["gear_after"]), ("等证据临界", "回避"))
         self.assertEqual(cb["flipped_nodes"], ["state"])
-        self.assertIn("档位 等证据临界→回避", cb["alpha_summary"])
+        self.assertIn("行动档位 先观察等证据→回避", cb["alpha_summary"])
+        for word in ("阿尔法", "三元组", "节点", "等证据临界"):
+            self.assertNotIn(word, cb["alpha_summary"])
         self.assertEqual(
             cb["falsification_changes"],
             [{"condition": "H1 光模块营收 <40 亿或毛利率 <30%", "change": "triggered"}],
@@ -291,7 +297,7 @@ class TestChangeBlock(unittest.TestCase):
     def test_scenario_b_bullish_advises_full_rerun(self):
         """research/03 场景B:质地标脏重评后翻转 → 照常产出 + 明示「建议全量重跑」。"""
         cb = self._change(fx.scenario_b_nodes())
-        self.assertTrue(cb["alpha_summary"].startswith("阿尔法变了"))
+        self.assertTrue(cb["alpha_summary"].startswith("判断变了"))
         self.assertIn("quality", cb["flipped_nodes"])
         self.assertEqual(cb["gear_after"], "期权仓")
         self.assertTrue(cb["full_rerun_advice"]["advised"])
@@ -299,7 +305,9 @@ class TestChangeBlock(unittest.TestCase):
 
     def test_no_change_says_alpha_unchanged(self):
         cb = self._change(fx.nodes())
-        self.assertTrue(cb["alpha_summary"].startswith("阿尔法没变"))
+        self.assertTrue(cb["alpha_summary"].startswith("判断没变"))
+        self.assertIn("先观察等证据", cb["alpha_summary"])
+        self.assertNotIn("三元组", cb["alpha_summary"])
         self.assertEqual(cb["flipped_nodes"], [])
         self.assertEqual(cb["red_flag_changes"], [])
         self.assertFalse(cb["full_rerun_advice"]["advised"])

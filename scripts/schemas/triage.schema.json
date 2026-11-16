@@ -70,7 +70,16 @@
         "properties": {
           "name": { "type": "string", "minLength": 1 },
           "before": { "type": "string" },
-          "after": { "type": "string" }
+          "after": { "type": "string" },
+          "before_period": {
+            "type": ["string", "null"],
+            "description": "上版数值的期别: 报告期 end_date(YYYYMMDD, 年内累计口径)或交易日; 取不到为 null"
+          },
+          "after_period": { "type": ["string", "null"], "description": "本版数值的期别, 同上" },
+          "period_basis": {
+            "enum": ["report", "trade_date"],
+            "description": "report = 财报报告期(利润表/现金流量表是年内累计) / trade_date = 行情交易日"
+          }
         }
       }
     },
@@ -81,7 +90,8 @@
         "required": ["id", "change"],
         "properties": {
           "id": { "type": "string", "minLength": 1 },
-          "change": { "enum": ["triggered", "resolved", "level_changed"] },
+          "change": { "enum": ["triggered", "resolved", "level_changed", "replaced"] },
+          "replaces": { "type": "string" },
           "note": { "type": "string" }
         }
       }

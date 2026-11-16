@@ -108,6 +108,10 @@ def compute_a_share(bundle: dict[str, pd.DataFrame]) -> dict[str, Any]:
     latest_q_cf = _latest_quarter(bundle.get("cashflow", pd.DataFrame()))
 
     out: dict[str, Any] = {}
+    # growth / profitability / cashflow 三组都取自最新**年报**; 记下是哪一年, 增量复查的指标 delta
+    # 才能给读者标期别(triage.metric_period; v8.15 D3)
+    if not inc.empty and "end_date" in inc.columns:
+        out["annual_period"] = str(inc.iloc[-1].get("end_date"))
 
     # ---- growth (CAGR from oldest annual to latest annual) ----
     growth = {}

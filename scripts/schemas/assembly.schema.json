@@ -156,7 +156,11 @@
             "required": ["id", "change"],
             "properties": {
               "id": { "type": "string", "minLength": 1 },
-              "change": { "enum": ["triggered", "resolved", "level_changed"] },
+              "change": { "enum": ["triggered", "resolved", "level_changed", "replaced"] },
+              "replaces": {
+                "type": "string",
+                "description": "change=replaced 时:被本条接替的上版提名 id(同节点、去掉期别后缀后相同 = 延续性风险换了期别, 不是解除+新增)"
+              },
               "level": { "enum": ["🔴", "🟠", "🟡", "🟢", "ℹ️"] },
               "note": { "type": "string" }
             }
@@ -173,6 +177,15 @@
             }
           }
         },
+        "falsification_tally": {
+          "type": "object",
+          "description": "证伪口径与④对齐:累计已触发 / 本轮新触发 / 上版已触发且本版仍触发",
+          "properties": {
+            "triggered_total": { "type": "integer", "minimum": 0 },
+            "triggered_new": { "type": "integer", "minimum": 0 },
+            "carried_over": { "type": "integer", "minimum": 0 }
+          }
+        },
         "metric_deltas": {
           "type": "array",
           "items": {
@@ -181,7 +194,13 @@
             "properties": {
               "name": { "type": "string", "minLength": 1 },
               "before": { "type": "string" },
-              "after": { "type": "string" }
+              "after": { "type": "string" },
+              "before_period": { "type": ["string", "null"] },
+              "after_period": { "type": ["string", "null"] },
+              "period_basis": { "enum": ["report", "trade_date"] },
+              "before_label": { "type": "string" },
+              "after_label": { "type": "string" },
+              "period_note": { "type": "string" }
             }
           }
         },
