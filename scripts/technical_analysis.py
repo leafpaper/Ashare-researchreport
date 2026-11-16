@@ -16,6 +16,9 @@ Usage:
         --out output/闻泰科技/technical_analysis.md
 
 前置: Phase 1 Step 1 tushare_collector 已跑过, daily.parquet 存在.
+
+符号约定(v8.15): 偏空/警示信号用 ▼, 不用 🔴 —— 🔴 在报告的红旗体系里专指「致命、触发封顶」,
+附录C 再用它标「高度控盘 / 筹码分散 / 看空」, ⑤写「均无🔴」时读者会困惑。
 """
 from __future__ import annotations
 import sys
@@ -118,13 +121,13 @@ def analyze(daily_path: Path | str, ticker: str) -> tuple[pd.DataFrame, dict, st
     if all(np.isnan(v) == False for v in mas):
         is_bull = mas[0] > mas[1] > mas[2] > mas[3]
         is_bear = mas[0] < mas[1] < mas[2] < mas[3]
-        signals["ma_pattern"] = "多头排列 🟢" if is_bull else ("空头排列 🔴" if is_bear else "均线纠缠 🟡")
+        signals["ma_pattern"] = "多头排列 🟢" if is_bull else ("空头排列 ▼" if is_bear else "均线纠缠 🟡")
         signals["ma_values"] = {"ma5": round(mas[0], 2), "ma20": round(mas[1], 2),
                                 "ma60": round(mas[2], 2), "ma120": round(mas[3], 2)}
         # 是否破 MA60/120 (中长期趋势线)
         if last["close"] < last["ma120"]:
             signals["below_ma120"] = True
-            signals["trend"] = "长期弱势 🔴"
+            signals["trend"] = "长期弱势 ▼"
         elif last["close"] > last["ma60"]:
             signals["trend"] = "中期强势 🟢"
         else:
@@ -136,7 +139,7 @@ def analyze(daily_path: Path | str, ticker: str) -> tuple[pd.DataFrame, dict, st
               (recent["macd_diff"] >= recent["macd_dea"])).any()
     death = ((recent["macd_diff"].shift(1) > recent["macd_dea"].shift(1)) &
              (recent["macd_diff"] <= recent["macd_dea"])).any()
-    signals["macd_status"] = "近 10 日金叉 🟢" if golden else ("近 10 日死叉 🔴" if death else "无交叉 ⚪")
+    signals["macd_status"] = "近 10 日金叉 🟢" if golden else ("近 10 日死叉 ▼" if death else "无交叉 ⚪")
     signals["macd_diff"] = round(float(last["macd_diff"]), 3)
     signals["macd_dea"] = round(float(last["macd_dea"]), 3)
     signals["macd_above_zero"] = bool(last["macd_diff"] > 0)
@@ -145,7 +148,7 @@ def analyze(daily_path: Path | str, ticker: str) -> tuple[pd.DataFrame, dict, st
     rsi_now = float(last["rsi14"])
     signals["rsi14"] = round(rsi_now, 2)
     if rsi_now > 70:
-        signals["rsi_status"] = "超买 🔴"
+        signals["rsi_status"] = "超买 ▼"
     elif rsi_now < 30:
         signals["rsi_status"] = "超卖 🟢"
     else:
@@ -153,7 +156,7 @@ def analyze(daily_path: Path | str, ticker: str) -> tuple[pd.DataFrame, dict, st
 
     # 4. Bollinger 位置
     if last["close"] > last["boll_up"]:
-        signals["boll_position"] = "上轨之上 (短期超买) 🔴"
+        signals["boll_position"] = "上轨之上 (短期超买) ▼"
     elif last["close"] < last["boll_dn"]:
         signals["boll_position"] = "下轨之下 (短期超卖) 🟢"
     elif last["close"] > last["boll_mid"]:
@@ -168,7 +171,7 @@ def analyze(daily_path: Path | str, ticker: str) -> tuple[pd.DataFrame, dict, st
     vol_ratio = float(last["vol_ratio"])
     signals["vol_ratio"] = round(vol_ratio, 2)
     if vol_ratio > 3:
-        signals["vol_status"] = f"放巨量 (>{vol_ratio:.1f}x 60 日均量) 🔴"
+        signals["vol_status"] = f"放巨量 (>{vol_ratio:.1f}x 60 日均量) ▼"
     elif vol_ratio > 1.5:
         signals["vol_status"] = f"放量 ({vol_ratio:.1f}x) ⚠️"
     elif vol_ratio < 0.5:
@@ -217,7 +220,7 @@ def analyze(daily_path: Path | str, ticker: str) -> tuple[pd.DataFrame, dict, st
         red_flags.append(f"放巨量 ({signals['vol_ratio']}x 60日均量)")
 
     if len(red_flags) >= 2:
-        signals["tech_verdict"] = "🔴 技术面偏空 (多重卖出信号)"
+        signals["tech_verdict"] = "▼ 技术面偏空 (多重卖出信号)"
     elif len(green_flags) >= 2:
         signals["tech_verdict"] = "🟢 技术面偏多 (多重买入信号)"
     else:
@@ -269,11 +272,11 @@ def _format_markdown(df: pd.DataFrame, s: dict) -> str:
     # §3 Red/Green flags
     lines.extend([
         "",
-        "## §3 技术面警示 (供 Phase 3 §九 消费)",
+        "## §3 技术面警示",
         "",
     ])
     if s["red_flags"]:
-        lines.append("### 🔴 看空信号")
+        lines.append("### ▼ 看空信号")
         for f in s["red_flags"]:
             lines.append(f"- {f}")
     if s["green_flags"]:

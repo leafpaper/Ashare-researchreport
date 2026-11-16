@@ -161,7 +161,8 @@ class TestDashboardFrontPage(_Built):
 
     def test_hero_facts_from_contract_fields_only(self):
         facts = self.html.split('class="facts"')[1].split("</div>\n\n<!--")[0]
-        for expected in ("行动档位", "等证据临界", "质地", "部分好", "现价", "273",
+        # 行动档位按人话词典显示(契约枚举「等证据临界」→ 读者面「先观察等证据」, v8.15 D3)
+        for expected in ("行动档位", "先观察等证据", "质地", "部分好", "现价", "273",
                          "合理价区间", "57–89", "下次预约披露", "2026-08-30"):
             self.assertIn(expected, facts)
 
@@ -435,9 +436,12 @@ class TestIncrementalChangeBlock(unittest.TestCase):
             )
             self.assertIn('class="change"', html)
             self.assertIn(html_lib.escape(product["change_block"]["alpha_summary"]), html)
-            self.assertIn("等证据临界", html)
-            self.assertIn("回避", html)
-            self.assertIn("证伪触发", html)
+            change = re.search(r'<div class="change">.*?</ul>', html, re.S).group(0)
+            self.assertIn("先观察等证据", change)
+            self.assertIn("回避", change)
+            self.assertIn("证伪本轮新触发", change)
+            for word in ("阿尔法", "三元组", "等证据临界"):           # v8.15 D3: 区块全说人话
+                self.assertNotIn(word, change)
 
     def test_scenario_b_advises_full_rerun(self):
         with tempfile.TemporaryDirectory() as td:
@@ -553,8 +557,11 @@ class TestContractDrivenFigures(_Built):
         """身份三通道: 色块 + 图例文字 + 直标金额与占比。浅色主题下 N 段对比度 2.69:1,
         relief 条款要求可见直标 —— 这条就是那份 relief 的机检。"""
         fig = self.figure("pfn")
-        self.assertIn("已赚到的 F", fig)
-        self.assertIn("为想象多付的 N", fig)
+        self.assertIn("已赚到的", fig)
+        self.assertIn("还没挣到的那部分", fig)
+        # v8.15 L3: 读者面不出现字母 F/N, N 不再叫「为想象多付的」(含联营/一次性收益资本化, 不全是想象)
+        self.assertNotIn("为想象多付", fig)
+        self.assertNotRegex(fig, r"已赚到的 F|那部分 N|F 的口径")
         self.assertIn("1,000 亿", fig)      # F 金额直标
         self.assertIn("4,000 亿", fig)      # N 金额直标
         self.assertIn("80%", fig)           # 占比直标

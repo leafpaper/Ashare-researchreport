@@ -368,8 +368,8 @@ def wrap_tables(html_text: str) -> str:
 def _flag_line(flag: dict) -> str:
     """浮层一行 = 红旗标题 + 级别 + 一句证据 + 来源 + 归属节点(反查五要素)。"""
     return (
-        f'<span class="ttl">{_esc(flag["level"])} {_esc(flag["title"])}</span>'
-        f'<span>{_esc(flag["evidence"])}</span>'
+        f'<span class="ttl">{_esc(flag["level"])} {_esc(rf.display_title(flag))}</span>'
+        f'<span>{_esc(rf.display_note(flag))}</span>'
         f'<span class="meta">级别 {_esc(LEVEL_WORDS.get(flag["level"], flag["level"]))}'
         f' · 来源 {_esc(rf.SOURCE_LABELS.get(flag["source"], flag["source"]))}'
         f' · 归属 {_esc(rf.NODE_LABELS.get(flag["node"], flag["node"]))}</span>'
@@ -380,8 +380,8 @@ def _flag_line(flag: dict) -> str:
 def _flag_plain(flag: dict) -> str:
     """title 属性兜底(浮层被横滚容器裁掉时仍能反查, 触屏长按也可见)。"""
     return (
-        f'{flag["level"]} {LEVEL_WORDS.get(flag["level"], "")} {flag["title"]}'
-        f'｜{flag["evidence"]}'
+        f'{flag["level"]} {LEVEL_WORDS.get(flag["level"], "")} {rf.display_title(flag)}'
+        f'｜{rf.display_note(flag)}'
         f'｜来源 {rf.SOURCE_LABELS.get(flag["source"], flag["source"])}'
         f'｜归属 {rf.NODE_LABELS.get(flag["node"], flag["node"])}'
     )
@@ -394,7 +394,7 @@ def render_mark(entry: dict, label: str | None = None, inline: bool = False) -> 
     """
     flags = entry["flags"]
     lead = flags[0]
-    text = label if label is not None else lead["title"]
+    text = label if label is not None else rf.display_title(lead)
     cls = f'fw fw-{entry["mark"]}' + (" fw-inline" if inline else "")
     tip = " ／ ".join(_flag_plain(f) for f in flags)
     pops = "".join(f'<span class="fw-pop" role="note">{_flag_line(f)}</span>' for f in flags[:1])
@@ -427,7 +427,7 @@ def red_mark_vocab(product: dict) -> dict[str, dict]:
     mark_map = product.get("red_mark_map") or {}
     vocab: dict[str, dict] = {}
     for flag in product.get("red_flags") or []:
-        if not rf.MARK_BY_LEVEL.get(flag["level"]):
+        if not rf.MARK_BY_LEVEL.get(flag["level"]) or rf.is_superseded(flag):
             continue
         entry = {
             "mark": rf.MARK_BY_LEVEL[flag["level"]],
@@ -603,7 +603,10 @@ def _pct_text(value: float, digits: int = 1) -> str:
 
 
 def render_pfn_bar(nodes: dict | None) -> str:
-    """P = F + N 占比尺:一根条拆两段 —— 已赚到的 F / 为想象多付的 N。
+    """股价拆两半的占比尺(契约里叫 P=F+N):一根条拆两段 —— 已赚到的 / 还没挣到的那部分。
+
+    读者面不出现字母 F/N(人话词典 §4.1)。N 也不再叫「为想象多付的」:③赔率把 N 定性为
+    「还没挣到的那部分」—— 里面含联营收益、一次性收益的资本化, 不全是想象(立讯 11-13 评审, v8.15 L3)。
 
     形态取自 dataviz 的 proportion bar(两段的部分-整体, 不画饼也不画两根柱)。
     两段之间留 2px 表面色缝隙, 不描边框。identity 三通道:颜色 + 图例文字 + 直标金额与占比,
@@ -623,23 +626,23 @@ def render_pfn_bar(nodes: dict | None) -> str:
         else "白送的可选项(free option)"
     f_txt = f"{derivation._fmt(fact, unit)} · {_pct_text(f_pct)}"
     n_txt = f"{derivation._fmt(narr, unit)} · {_pct_text(n_pct)}"
-    alt = (f"股价拆两半:市值 {derivation._fmt(cap, unit)} 里, 已赚到的 F {f_txt},"
-           f"为想象多付的 N {n_txt}")
+    alt = (f"股价拆两半:市值 {derivation._fmt(cap, unit)} 里, 已赚到的 {f_txt},"
+           f"还没挣到的那部分 {n_txt}")
     # 图例只放「身份 + 数值」。F 是怎么算出来的(fact_basis 实测 170 字)属于算式,
     # 它的家在③正文的注里 —— 图例复制一份, 就是每次拆完墙又在图里重建一堵
     # (票 10 交付评审:「注下沉要连图一起下沉」)。全文进 title, 悬停与朗读都拿得到。
     basis = pfn.get("fact_basis") or ""
     return "\n".join([
         f'<figure class="pfn" role="img" aria-label="{_esc(alt)}"'
-        + (f' title="F 的口径:{_esc(basis)}"' if basis else "") + ">",
-        "  <figcaption>股价拆两半:已赚到的 · 为想象多付的</figcaption>",
+        + (f' title="「已赚到的」怎么算:{_esc(basis)}"' if basis else "") + ">",
+        "  <figcaption>股价拆两半:已赚到的 · 还没挣到的</figcaption>",
         '  <div class="bar">',
         f'    <span class="sg f" style="flex-basis:calc({f_pct:.2f}% - 1px)"></span>',
         f'    <span class="sg n" style="flex-basis:calc({n_pct:.2f}% - 1px)"></span>',
         "  </div>",
         '  <div class="lg">'
-        f'<span><i class="sw f"></i>已赚到的 F {_esc(f_txt)}</span>'
-        f'<span><i class="sw n"></i>为想象多付的 N {_esc(n_txt)}'
+        f'<span><i class="sw f"></i>已赚到的 {_esc(f_txt)}</span>'
+        f'<span><i class="sw n"></i>还没挣到的那部分 {_esc(n_txt)}'
         f"<small>{_esc(kind)}</small></span></div>",
         "</figure>",
     ])
@@ -825,7 +828,7 @@ def _flag_load(product: dict) -> dict[str, list[str]]:
     """各节点背了几面旗(红旗条目的 node 字段是契约字段, 非新判断)。"""
     load: dict[str, list[str]] = {}
     for flag in product.get("red_flags") or []:
-        if rf.MARK_BY_LEVEL.get(flag["level"]):
+        if rf.MARK_BY_LEVEL.get(flag["level"]) and not rf.is_superseded(flag):
             load.setdefault(flag["node"], []).append(flag["level"])
     return load
 
@@ -840,7 +843,7 @@ def _load_chip(levels: list[str]) -> str:
     # (①-④卡各被劈成两格,桌面错位、窄屏多出只装「①质地」的小卡片)。字符串计数的测试看不见,
     # 只有解析后的 DOM 才看得见(票 10 后华特交付评审;东山/旭创已上线版本同样中招)。
     # 红旗明细仍可达:点卡进本章,章内红标直达附录D。
-    return f'<span class="chip" title="本节点红旗数(明细见附录D)">{_esc(body)} 红旗</span>'
+    return f'<span class="chip" title="这一章挂了几面红旗(明细见附录D)">{_esc(body)} 红旗</span>'
 
 
 def node_tone(node: str, product: dict, load: dict[str, list[str]]) -> str:
@@ -860,7 +863,7 @@ def render_hero_facts(product: dict, nodes: dict[str, dict] | None = None) -> st
     """事实条 = 行动档位 / 质地 / 现价 / 合理价区间 / 下次预约披露日(全部契约字段, 不自行推导)。"""
     meta = product["metadata"]
     facts = [
-        ("行动档位", _esc(meta["action_gear"]), ""),
+        ("行动档位", _esc(assembly.gear_plain(meta["action_gear"])), ""),
         ("质地", _esc(meta["quality_field"]), ""),
     ]
     odds = (nodes or {}).get("odds") or {}
@@ -922,7 +925,7 @@ def render_panel(product: dict) -> str:
         cls = f' mk-{entry["mark"]}' if entry else ""
         note = _esc(ind["trend"])
         if ind.get("peer_percentile"):
-            note += f' · peer {_esc(ind["peer_percentile"])}'
+            note += f' · 同业分位 {_esc(ind["peer_percentile"])}'
         if ind.get("note"):
             note += f' <span class="why">（{_esc(ind["note"])}）</span>'
         spark = render_sparkline(ind.get("series"), ind["name"])
@@ -969,7 +972,7 @@ def render_top3(product: dict) -> str:
         }
         node = item.get("node", "")
         others = "".join(
-            f' · <a href="#{rf.anchor(f["id"])}">{_esc(f["level"])} {_esc(f["title"])}'
+            f' · <a href="#{rf.anchor(f["id"])}">{_esc(f["level"])} {_esc(rf.display_title(f))}'
             '</a>'
             for f in group if f["id"] != lead["id"]
         )
@@ -1000,14 +1003,25 @@ def render_intro(product: dict) -> str:
 
 
 def render_change_block(product: dict) -> str:
-    """较上版变化(增量复查 --review 才有): 首句人话答「阿尔法变了没」。"""
+    """较上版变化(增量复查 --review 才有): 首句人话答「判断变了没」。
+
+    行名用决断卡的问句、档位用读者面叫法、指标 delta 两侧标期别 —— 与 md 同源(assemble_report_v8 的
+    CHANGE_TRIAD_ROWS / change_cell / falsification_lines / flag_change_verb), 两处不各写一份(v8.15 D3)。
+    """
+    from . import assemble_report_v8 as arv8
+
     cb = product.get("change_block")
     if not cb:
         return "<!-- 全量 run: 无较上版变化区块 -->"
     tb, ta = cb["triad_before"], cb["triad_after"]
-    rows = [("行动档位", cb["gear_before"], cb["gear_after"])]
-    rows += [(f"三元组·{assembly.NODE_LABELS[k]}", tb[k], ta[k]) for k in ("state", "odds", "path")]
-    rows += [(d["name"], d["before"], d["after"]) for d in cb["metric_deltas"]]
+    rows = [("行动档位", assembly.gear_plain(cb["gear_before"]), assembly.gear_plain(cb["gear_after"]))]
+    rows += [(label, tb[k], ta[k]) for k, label in arv8.CHANGE_TRIAD_ROWS]
+    notes = []
+    for d in cb["metric_deltas"]:
+        rows.append((d["name"], arv8.change_cell(d["before"], d.get("before_label")),
+                     arv8.change_cell(d["after"], d.get("after_label"))))
+        if d.get("period_note"):
+            notes.append(f"「{d['name']}」{d['period_note']}")
     table = (
         '<div class="tblwrap"><table><thead><tr><th>项</th><th>上版</th><th>本版</th></tr></thead><tbody>'
         + "".join(
@@ -1015,6 +1029,8 @@ def render_change_block(product: dict) -> str:
         )
         + "</tbody></table></div>"
     )
+    if notes:
+        table += f'<p class="note">注:{_esc(";".join(notes))}。</p>'
     kinds = cb.get("flip_kinds") or {}
     verdict_flips = [n for n in cb["flipped_nodes"] if kinds.get(n, "verdict") == "verdict"]
     sub_flips = [n for n in cb["flipped_nodes"] if kinds.get(n) == "sub"]
@@ -1024,19 +1040,17 @@ def render_change_block(product: dict) -> str:
     if sub_flips:
         flip_bits.append("、".join(assembly.NODE_LABELS[n] for n in sub_flips) + " 子判定变化(判定语未变)")
     bullets = [f'<li><b>判定变化</b>:{_esc(";".join(flip_bits) or "无")}</li>']
-    for item in cb["falsification_changes"]:
-        verb = "触发" if item["change"] == "triggered" else "解除"
-        bullets.append(f'<li><b>证伪{verb}</b>:{_esc(item["condition"])}</li>')
-    if not cb["falsification_changes"]:
-        bullets.append("<li><b>证伪清单</b>:无触发/解除</li>")
+    for label, text in arv8.falsification_lines(cb):
+        bullets.append(f'<li><b>{_esc(label)}</b>:{_esc(text)}</li>')
     # 红旗变化: 🟢/ℹ️ 是绿灯与信息更新, 不许借「红旗」名头吓人; 长清单收进折叠组
-    # (分组口径 = assembly.flag_change_is_soft, 与 alpha_summary 的计数同源)
-    verbs = {"triggered": "新增", "resolved": "解除", "level_changed": "级别变化"}
+    # (分组口径 = assembly.flag_change_is_soft, 与首句的计数同源)
     flag_items, green_items = [], []
     for item in cb["red_flag_changes"]:
         note = item.get("note") or item["id"]
-        target = green_items if assembly.flag_change_is_soft(item) else flag_items
-        target.append(f'<li><b>{"绿灯更新" if target is green_items else "红旗" + verbs[item["change"]]}</b>:{_esc(note)}</li>')
+        if assembly.flag_change_is_soft(item):
+            green_items.append(f'<li><b>绿灯更新</b>:{_esc(note)}</li>')
+        else:
+            flag_items.append(f'<li><b>{_esc(arv8.flag_change_verb(item))}</b>:{_esc(note)}</li>')
     if flag_items or green_items:
         counts = []
         if flag_items:

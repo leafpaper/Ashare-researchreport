@@ -55,10 +55,10 @@ APPENDIX_SOURCES = (
 # ⚠️ 上一版只写了第二种,还补了一句「同业各家数据与估值列不受此影响」—— 在同业本身就选错时,
 #    这句话恰好在替那几家零重合的公司背书(华特交付评审判为硬伤)。别再替自动选出来的同业担保。
 APPENDIX_B_CAVEAT = (
-    "> ⚠️ **口径提示**:本表的同业是采集脚本按行业分类**自动选**的 —— 对细分行业的公司,"
+    "> ⚠️ **口径提示**:本表的同业是按数据源的行业分类**自动选**的 —— 对细分行业的公司,"
     "可能选到与本公司**零业务重合**的对照物,那样算出的估值分位**不作数**;"
     "本附录若另有人工补采的「真实同业」小节,**以那一节为准**。"
-    "另:本表**本公司**那一行的盈利能力列取自脚本抓到的「最新披露期」,期别**可能早于本报告基准日**,"
+    "另:本表**本公司**那一行的盈利能力列取自数据源的「最新披露期」,期别**可能早于本报告基准日**,"
     "本公司的盈利能力以**附录A 的趋势表**与正文为准。"
 )
 
@@ -132,7 +132,7 @@ def render_panel(panel: dict, mark_map: dict) -> str:
     show_peer = any(ind.get("peer_percentile") for ind in indicators)
     show_mark = any(by_ind.get(ind["name"]) for ind in indicators)
 
-    head = ["指标", "数值", "趋势"] + (["peer 分位"] if show_peer else []) + (["红标"] if show_mark else [])
+    head = ["指标", "数值", "趋势"] + (["同业分位"] if show_peer else []) + (["红标"] if show_mark else [])
     lines = [
         "### 赚不赚钱面板",
         "",
@@ -173,19 +173,57 @@ def render_top3(top3: list[dict]) -> str:
     return "\n".join(lines)
 
 
+# 「较上版变化」表格的行名 = 首页决断卡的问句(读者已在上面见过), 不出现「三元组」这类内部词(v8.15 D3)
+CHANGE_TRIAD_ROWS = (("state", "② 在变好吗"), ("odds", "③ 贵不贵"), ("path", "④ 扛得住吗"))
+
+
+def change_cell(value: str, label: str | None) -> str:
+    """指标 delta 的一格: 数值 + 期别(triage 带了期别才有)。"""
+    return f"{value}({label})" if label else str(value)
+
+
+def flag_change_verb(item: dict) -> str:
+    return {"triggered": "红旗新增", "resolved": "红旗解除", "level_changed": "红旗级别变化",
+            "replaced": "红旗延续"}.get(item["change"], "红旗变化")
+
+
+def falsification_lines(cb: dict) -> list[tuple[str, str]]:
+    """证伪变化的条目(标签, 内容)—— 本轮新触发 / 本轮解除 / 累计(与④口径一致)。md 与 HTML 共用。"""
+    out = []
+    for item in cb["falsification_changes"]:
+        verb = "证伪本轮新触发" if item["change"] == "triggered" else "证伪本轮解除"
+        out.append((verb, item["condition"]))
+    tally = cb.get("falsification_tally")
+    if tally and tally.get("triggered_total"):
+        carried = tally.get("carried_over", 0)
+        out.append(("证伪累计已触发",
+                    f"{tally['triggered_total']} 条(本轮新触发 {tally.get('triggered_new', 0)} 条,"
+                    f"上版已触发且仍未解除 {carried} 条)"))
+    if not out:
+        out.append(("证伪清单", "本轮无新触发、无解除"))
+    return out
+
+
 def render_change_block(cb: dict) -> str:
     lines = ["### 较上版变化", "", f"**{cb['alpha_summary']}**", ""]
     tb, ta = cb["triad_before"], cb["triad_after"]
     lines += [
         "| 项 | 上版 | 本版 |",
         "|---|---|---|",
-        f"| 行动档位 | {_cell(cb['gear_before'])} | {_cell(cb['gear_after'])} |",
-        f"| 三元组 状态 | {_cell(tb['state'])} | {_cell(ta['state'])} |",
-        f"| 三元组 赔率 | {_cell(tb['odds'])} | {_cell(ta['odds'])} |",
-        f"| 三元组 路径 | {_cell(tb['path'])} | {_cell(ta['path'])} |",
+        f"| 行动档位 | {_cell(assembly.gear_plain(cb['gear_before']))} "
+        f"| {_cell(assembly.gear_plain(cb['gear_after']))} |",
     ]
+    lines += [f"| {label} | {_cell(tb[k])} | {_cell(ta[k])} |" for k, label in CHANGE_TRIAD_ROWS]
+    notes = []
     for delta in cb["metric_deltas"]:
-        lines.append(f"| {_cell(delta['name'])} | {_cell(delta['before'])} | {_cell(delta['after'])} |")
+        lines.append(
+            f"| {_cell(delta['name'])} | {_cell(change_cell(delta['before'], delta.get('before_label')))} "
+            f"| {_cell(change_cell(delta['after'], delta.get('after_label')))} |"
+        )
+        if delta.get("period_note"):
+            notes.append(f"「{delta['name']}」{delta['period_note']}")
+    if notes:
+        lines += ["", "> 注:" + ";".join(notes) + "。"]
     kinds = cb.get("flip_kinds") or {}
     verdict_flips = [n for n in cb["flipped_nodes"] if kinds.get(n, "verdict") == "verdict"]
     sub_flips = [n for n in cb["flipped_nodes"] if kinds.get(n) == "sub"]
@@ -196,19 +234,14 @@ def render_change_block(cb: dict) -> str:
         flip_bits.append("、".join(assembly.NODE_LABELS[n] for n in sub_flips) + " 子判定变化(判定语未变)")
     lines += ["", f"- **判定变化**:{';'.join(flip_bits) or '无'}"]
 
-    if cb["falsification_changes"]:
-        for item in cb["falsification_changes"]:
-            verb = "触发" if item["change"] == "triggered" else "解除"
-            lines.append(f"- **证伪{verb}**:{item['condition']}")
-    else:
-        lines.append("- **证伪清单**:无触发/解除")
+    for label, text in falsification_lines(cb):
+        lines.append(f"- **{label}**:{text}")
     if cb["red_flag_changes"]:
         # 文案与统计同源: 🟢/ℹ️ 单列「绿灯更新」, 不借红旗名头
         hard = [i for i in cb["red_flag_changes"] if not assembly.flag_change_is_soft(i)]
         soft = [i for i in cb["red_flag_changes"] if assembly.flag_change_is_soft(i)]
         for item in hard:
-            verb = {"triggered": "新增", "resolved": "解除", "level_changed": "级别变化"}[item["change"]]
-            lines.append(f"- **红旗{verb}**:{item.get('note') or item['id']}")
+            lines.append(f"- **{flag_change_verb(item)}**:{item.get('note') or item['id']}")
         for item in soft:
             lines.append(f"- **绿灯更新**:{item.get('note') or item['id']}")
     else:
@@ -251,13 +284,23 @@ def render_appendix_d(flags: list[dict]) -> str:
         "",
         f"**合计 {c['total']} 条** — 级别:{level_line};来源:{source_line}",
         "",
-        "| 级别 | 标题 | 证据 | 来源 | 归属节点 | 关联指标 | id |",
+        "| 级别 | 标题 | 证据 | 来源 | 归属章节 | 关联指标 | id |",
         "|---|---|---|---|---|---|---|",
     ]
+    by_id = {f["id"]: f for f in flags}
     for flag in sorted(flags, key=lambda f: rf.LEVEL_ORDER[f["level"]]):
         metrics = "、".join(flag.get("metric_refs") or []) or "—"
+        title = rf.display_title(flag)
+        # 更正关系两头都写清: 被更正的脚本条留在这里(审计留痕), 但读者要知道它已作废、以哪条为准
+        if flag.get("superseded_by"):
+            fixer = by_id.get(flag["superseded_by"], {})
+            title += (f"(已由人工复核条目「{rf.display_title(fixer) or flag['superseded_by']}」更正,"
+                      "不进首页)")
+        elif flag.get("supersedes") and not flag.get("supersedes_missing"):
+            target = by_id.get(flag["supersedes"], {})
+            title += f"(更正自动审计条目「{rf.display_title(target) or flag['supersedes']}」)"
         lines.append(
-            f"| {flag['level']} | {_cell(flag['title'])} | {_cell(flag['evidence'])} "
+            f"| {flag['level']} | {_cell(title)} | {_cell(flag['evidence'])} "
             f"| {rf.SOURCE_LABELS[flag['source']]} | {rf.NODE_LABELS[flag['node']]} "
             f"| {_cell(metrics)} | <a id=\"{rf.anchor(flag['id'])}\"></a>`{flag['id']}` |"
         )
@@ -280,6 +323,73 @@ def _anchor_manual_peers(md: str) -> tuple[str, bool]:
     return md, bool(n)
 
 
+# 附录挂载时洗掉的「机器出处」(v8.15 L2;09-18 记为已修但从未提交):
+#   · 本机绝对路径 —— data_snapshot.md 抬头「**数据源**: `C:\\Users\\...\\raw_data`」原样进了成品;
+#   · 「由 `scripts/X.py` 自动生成」「挂载为报告附录X」「供 Phase 3 …消费」这类流水线脚注。
+# 只洗装配输出, 采集产物文件本身不动(排障时还要看它们是哪个脚本、哪台机器产的)。
+# Windows 盘符路径 / UNC / 类 Unix 家目录; 盘符前不能紧贴字母数字(https:// 的 s: 不算),
+# Unix 路径前不能紧贴网址字符(xueqiu.com/home/... 不算)
+_ABS_PATH = re.compile(
+    r"`?(?:(?<![A-Za-z0-9])[A-Za-z]:[\\/]|(?<![\w.:/-])\\\\|(?<![\w.:/-])/(?:Users|home|root|mnt|tmp|var)/)"
+    r"[^\s`|)）]*`?"
+)
+_SCRIPT_FILE = re.compile(r"`?\bscripts[\\/][\w./\\-]+\.py`?")
+# 整行都是流水线自述的脚注/引注(斜体行或引用行, 且带这些记号)→ 整行删
+_PROVENANCE_LINE = re.compile(
+    r"^\s*(?:>\s*)?\*?.*(?:scripts[\\/]\S+\.py|自动生成|挂载|Phase\s*\d|LLM).*$"
+)
+
+
+# 行内括注「(供 Phase 3 §九 消费)」: 旧 technical_analysis.md 的 §3 标题就带着它
+_PHASE_ASIDE = re.compile(r"\s*[(（][^()（）]*Phase\s*\d[^()（）]*[)）]")
+
+
+def _strip_machine_provenance(md: str) -> str:
+    """挂载前洗掉本机路径与「由 scripts/X.py 自动生成」类脚注(只改装配输出)。"""
+    out = []
+    for line in md.splitlines():
+        stripped = line.strip()
+        is_note = stripped.startswith(("*", ">", "_")) and not stripped.startswith(("**", "* "))
+        if is_note and _PROVENANCE_LINE.match(line):
+            continue
+        if _ABS_PATH.search(line):
+            line = _ABS_PATH.sub("", line)
+            line = re.sub(r"([::])\s*\(([^()]*)\)\s*$", r"\1 \2", line)   # 「数据源: (Tushare parquet)」→「数据源: Tushare parquet」
+            line = re.sub(r"([::])\s+$", r"\1", line)
+        line = _PHASE_ASIDE.sub("", line)
+        if _SCRIPT_FILE.search(line):                 # 行内残留的脚本文件名: 删掉, 顺手收拾空括号
+            line = re.sub(r"[(（]\s*[)）]", "", _SCRIPT_FILE.sub("", line))
+        out.append(line)
+    text = "\n".join(out)
+    return re.sub(r"\n(?:\s*---\s*\n)+\s*$", "\n", text).rstrip("\n")   # 删脚注后残留的收尾分隔线
+
+
+# 附录C(资金与技术面底稿)里旧产物用 🔴 标「高度控盘 / 筹码分散 / 看空信号」, 与红旗体系
+# 「🔴 = 致命、触发封顶」同符号, ⑤写「均无🔴」时读者会困惑(v8.15 D5)。源头已改成 ▼,
+# 这里给不重跑也要重出片的旧 capital_flow.md / technical_analysis.md 做同样映射。
+APPENDIX_C_SYMBOLS = {"🔴": "▼"}
+
+
+def _map_appendix_c_symbols(md: str) -> str:
+    for old, new in APPENDIX_C_SYMBOLS.items():
+        md = md.replace(old, new)
+    return md
+
+
+# 附录B(peer_collector 产物)里的英文词 peer 与重跑命令提示 —— 取值域与正文不留英文词(用户裁决);
+# 源头已改成「同业」, 这里给不重跑的旧 peer_analysis.md 做同样的事(v8.15 L3)。
+_PEER_CLI_SENTENCE = re.compile(r"选错时用\s*`--peer-codes[^`]*`\s*重跑[^。\n]*。")
+_PEER_CLI_SPAN = re.compile(r"[(（]?`--peer-codes[^`]*`[)）]?")
+_PEER_WORD = re.compile(r" ?\b[Pp]eer(?: group)?\b ?")
+
+
+def _appendix_b_reader_words(md: str) -> str:
+    md = _PEER_CLI_SENTENCE.sub("", md)
+    md = _PEER_CLI_SPAN.sub("", md)
+    md = md.replace("| Peer ", "| 同业")
+    return _PEER_WORD.sub(lambda m: "同业组" if "group" in m.group(0) else "同业", md)
+
+
 def build_appendices(
     flags: list[dict], search_dirs: list[Path]
 ) -> tuple[list[str], list[dict]]:
@@ -297,7 +407,11 @@ def build_appendices(
                 missing.append(name)
                 continue
             mounted.append(str(path))
-            text = _demote(path.read_text(encoding="utf-8").strip("\n"))
+            text = _demote(_strip_machine_provenance(path.read_text(encoding="utf-8").strip("\n")))
+            if key == "C":
+                text = _map_appendix_c_symbols(text)
+            if key == "B":
+                text = _appendix_b_reader_words(text)
             if key == "B":
                 text, anchored = _anchor_manual_peers(text)
                 if anchored:
@@ -342,7 +456,8 @@ def render_report(
     meta = product["metadata"]
     title = f"# {meta['company']}({ticker})投资分析报告" if ticker else f"# {meta['company']}投资分析报告"
     header = [title, "", render_metadata_block(product, ticker), ""]
-    stamp = f"**基准日**:{meta['date']} · **行动档位**:{meta['action_gear']} · **质地**:{meta['quality_field']}"
+    stamp = (f"**基准日**:{meta['date']} · **行动档位**:{assembly.gear_plain(meta['action_gear'])}"
+             f" · **质地**:{meta['quality_field']}")
     if meta.get("next_disclosure_date"):
         stamp += f" · **下次预约披露日**:{meta['next_disclosure_date']}"
     header.append(stamp)

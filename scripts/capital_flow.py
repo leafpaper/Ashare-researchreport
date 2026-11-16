@@ -23,6 +23,9 @@
 5. 主力资金流  - 近 20 日超大单+大单净流入天数占比
 6. 机构席位活跃 - 近 30 日龙虎榜机构上榜次数
 
+符号约定(v8.15): 偏空/警示信号用 ▼, 不用 🔴 —— 🔴 在报告的红旗体系里专指「致命、触发封顶」,
+附录C 再用它标「高度控盘 / 筹码分散 / 看空」, ⑤写「均无🔴」时读者会困惑。
+
 Usage:
     python3 -m scripts.capital_flow 600745.SH --days 60 \\
         --out output/闻泰科技/capital_flow.md
@@ -287,7 +290,7 @@ def _derive_metrics(target_code: str, raw: dict) -> dict[str, Any]:
     primary_ratio = m.get("top10_all_pct") or m.get("top10_float_of_total_pct", 0)
     m["control_ratio_top10"] = primary_ratio  # 保持向后兼容的字段名
     if primary_ratio >= 50:
-        m["control_level"] = "🔴 高度控盘"
+        m["control_level"] = "▼ 高度控盘"
     elif primary_ratio >= 30:
         m["control_level"] = "🟡 中度控盘"
     else:
@@ -296,7 +299,7 @@ def _derive_metrics(target_code: str, raw: dict) -> dict[str, Any]:
     # 家族控盘独立档位
     fp = m.get("family_control_pct", 0)
     if fp >= 40:
-        m["family_level"] = "🔴 家族绝对控盘"
+        m["family_level"] = "▼ 家族绝对控盘"
     elif fp >= 25:
         m["family_level"] = "🟡 家族相对控盘"
     elif fp > 0:
@@ -336,7 +339,7 @@ def _derive_metrics(target_code: str, raw: dict) -> dict[str, Any]:
             else:
                 m["chip_concentration"] = "🟡 户数减少但户均未升 (待观察)"
         elif holder_chg > 0.05:  # 户数 +5%+
-            m["chip_concentration"] = "🔴 筹码分散 (散户涌入, 机构退出)"
+            m["chip_concentration"] = "▼ 筹码分散 (散户涌入, 机构退出)"
         else:
             m["chip_concentration"] = "⚪ 筹码平稳"
 
@@ -359,7 +362,7 @@ def _derive_metrics(target_code: str, raw: dict) -> dict[str, Any]:
         if chg_20 > 0.3:
             m["hsgt_direction"] = "🟢 外资近 20 日加仓"
         elif chg_20 < -0.3:
-            m["hsgt_direction"] = "🔴 外资近 20 日减仓"
+            m["hsgt_direction"] = "▼ 外资近 20 日减仓"
         else:
             m["hsgt_direction"] = "⚪ 外资近 20 日平稳"
 
@@ -376,7 +379,7 @@ def _derive_metrics(target_code: str, raw: dict) -> dict[str, Any]:
                 (rzye_values[0] - median) / median * 100, 2
             ) if median else 0
             if m["margin_vs_median"] > 20:
-                m["margin_signal"] = "🔴 两融余额显著高于近 60 日中位数 (杠杆多头拥挤)"
+                m["margin_signal"] = "▼ 两融余额显著高于近 60 日中位数 (杠杆多头拥挤)"
             elif m["margin_vs_median"] < -20:
                 m["margin_signal"] = "🟢 两融余额显著低于中位数 (杠杆撤退)"
             else:
@@ -406,7 +409,7 @@ def _derive_metrics(target_code: str, raw: dict) -> dict[str, Any]:
         if net_inflow_days >= 14:
             m["main_capital_signal"] = "🟢 主力资金近 20 日持续净流入"
         elif net_inflow_days <= 6:
-            m["main_capital_signal"] = "🔴 主力资金近 20 日持续净流出"
+            m["main_capital_signal"] = "▼ 主力资金近 20 日持续净流出"
         else:
             m["main_capital_signal"] = "⚪ 主力资金近 20 日拉锯"
 
@@ -426,7 +429,7 @@ def _derive_metrics(target_code: str, raw: dict) -> dict[str, Any]:
             if total_inst_net > 0:
                 m["inst_signal"] = f"🟢 近 30 日龙虎榜机构净买入 {total_inst_net / 10000:.0f} 万元"
             else:
-                m["inst_signal"] = f"🔴 近 30 日龙虎榜机构净卖出 {abs(total_inst_net) / 10000:.0f} 万元"
+                m["inst_signal"] = f"▼ 近 30 日龙虎榜机构净卖出 {abs(total_inst_net) / 10000:.0f} 万元"
     else:
         m["inst_signal"] = "⚪ 近 30 日无龙虎榜机构席位上榜"
 
@@ -466,7 +469,7 @@ def _derive_metrics(target_code: str, raw: dict) -> dict[str, Any]:
                 m["block_trade_avg_discount_pct"] = round(avg_disc, 2)
                 # 信号判定
                 if avg_disc < -5:
-                    m["block_trade_signal"] = f"🔴 大宗交易显著折价 {avg_disc:.1f}% — 抛售压力 / 机构低吸"
+                    m["block_trade_signal"] = f"▼ 大宗交易显著折价 {avg_disc:.1f}% — 抛售压力 / 机构低吸"
                 elif avg_disc > 2:
                     m["block_trade_signal"] = f"🟢 大宗交易溢价 +{avg_disc:.1f}% — 机构追涨建仓"
                 else:
@@ -513,7 +516,7 @@ def _derive_metrics(target_code: str, raw: dict) -> dict[str, Any]:
                 m["hsgt_pnl_pct"] = round(pnl_pct, 2)
                 m["hsgt_latest_close"] = latest_close
                 if pnl_pct < -10:
-                    m["hsgt_cost_signal"] = f"🔴 外资浮亏 {pnl_pct:.1f}% (建仓均价 {avg_cost:.2f} vs 现价 {latest_close:.2f}) — 抛售风险高"
+                    m["hsgt_cost_signal"] = f"▼ 外资浮亏 {pnl_pct:.1f}% (建仓均价 {avg_cost:.2f} vs 现价 {latest_close:.2f}) — 抛售风险高"
                 elif pnl_pct > 15:
                     m["hsgt_cost_signal"] = f"🟢 外资浮盈 +{pnl_pct:.1f}% — 减仓压力 (获利了结可能)"
                 else:
@@ -791,32 +794,32 @@ def _format_markdown(target_code: str, raw: dict, m: dict) -> str:
     fp = m.get("family_control_pct", 0)
     if fp >= 40:
         names = " / ".join(m.get("family_members", []))
-        warnings.append(f"🔴 **家族绝对控盘 {fp}%** — {m.get('controller_name','')}家族({names})合计占总股本 ≥40%, 重大决策一家独大, 关联交易/大股东占款风险需高度关注")
+        warnings.append(f"▼ **家族绝对控盘 {fp}%** — {m.get('controller_name','')}家族({names})合计占总股本 ≥40%, 重大决策一家独大, 关联交易/大股东占款风险需高度关注")
     elif fp >= 25:
         warnings.append(f"🟡 **家族相对控盘 {fp}%** — 实控人家族合计占 25-40%, 叠加董事会席位/一致行动人协议可能实现控股")
 
     top_pct = m.get("top10_all_pct") or m.get("top10_float_of_total_pct", 0)
     if top_pct >= 50:
-        warnings.append(f"🔴 **前十大合计 {top_pct}%** — 流通盘极度集中, 股价受大股东行为主导, 中小股东议价权弱")
+        warnings.append(f"▼ **前十大合计 {top_pct}%** — 流通盘极度集中, 股价受大股东行为主导, 中小股东议价权弱")
     if "筹码分散" in str(m.get("chip_concentration", "")):
-        warnings.append("🔴 **筹码分散** — 户数增加 >5%, 散户涌入, 机构可能正在退出")
+        warnings.append("▼ **筹码分散** — 户数增加 >5%, 散户涌入, 机构可能正在退出")
     if "筹码集中" in str(m.get("chip_concentration", "")):
         warnings.append("🟢 **筹码集中** — 户数减少 + 户均持股上升, 机构可能在吸筹")
     if m.get("hsgt_ratio_change_20d", 0) < -0.5:
-        warnings.append(f"🔴 **外资撤离** — 陆股通 20 日减仓 {m['hsgt_ratio_change_20d']:.2f}pp")
+        warnings.append(f"▼ **外资撤离** — 陆股通 20 日减仓 {m['hsgt_ratio_change_20d']:.2f}pp")
     if m.get("hsgt_ratio_change_20d", 0) > 0.5:
         warnings.append(f"🟢 **外资加仓** — 陆股通 20 日加仓 +{m['hsgt_ratio_change_20d']:.2f}pp")
     if m.get("main_capital_inflow_days_20", 10) <= 6:
-        warnings.append("🔴 **主力资金撤退** — 近 20 日超大单+大单净流入天数 ≤6 日")
+        warnings.append("▼ **主力资金撤退** — 近 20 日超大单+大单净流入天数 ≤6 日")
     if m.get("main_capital_inflow_days_20", 10) >= 14:
         warnings.append("🟢 **主力资金吸筹** — 近 20 日超大单+大单净流入天数 ≥14 日")
     if m.get("margin_vs_median", 0) > 30:
         warnings.append(f"⚠️ **两融杠杆拥挤** — 融资余额较近 60 日中位数高 {m['margin_vs_median']:.0f}%,若股价回调可能连锁平仓")
     # v5.1.2: 大宗交易折价 + 外资浮亏
     if m.get("block_trade_avg_discount_pct", 0) < -5:
-        warnings.append(f"🔴 **大宗交易显著折价 {m['block_trade_avg_discount_pct']:.1f}%** — 大额持有者抛售,关注未来 1-2 周抛压")
+        warnings.append(f"▼ **大宗交易显著折价 {m['block_trade_avg_discount_pct']:.1f}%** — 大额持有者抛售,关注未来 1-2 周抛压")
     if m.get("hsgt_pnl_pct", 0) < -10:
-        warnings.append(f"🔴 **外资浮亏 {m['hsgt_pnl_pct']:.1f}%** — 加权建仓成本 {m.get('hsgt_avg_cost', 0):.2f},当前 {m.get('hsgt_latest_close', 0):.2f},抛售风险高")
+        warnings.append(f"▼ **外资浮亏 {m['hsgt_pnl_pct']:.1f}%** — 加权建仓成本 {m.get('hsgt_avg_cost', 0):.2f},当前 {m.get('hsgt_latest_close', 0):.2f},抛售风险高")
     elif m.get("hsgt_pnl_pct", 0) > 15:
         warnings.append(f"⚠️ **外资浮盈 +{m['hsgt_pnl_pct']:.1f}%** — 获利了结压力,北向若开始减仓需警惕")
 

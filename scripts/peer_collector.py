@@ -338,7 +338,7 @@ def _format_markdown(
         f"# 可比公司对标: {target_name} ({target_code})",
         "",
         f"**行业分类** (Tushare industry): **{industry}**",
-        f"**Peer 选取规则**: {rule}",
+        f"**同业选取规则**: {rule}",
         f"**财务截至**: 最新披露期 · **行情截至**: {trade_date}",
         "",
         "## §1 对比表",
@@ -379,11 +379,11 @@ def _format_markdown(
     # 分位排名
     lines.extend([
         "",
-        "## §2 目标公司在 peer 中的分位",
+        "## §2 目标公司在同业中的分位",
         "",
-        f"下表显示 {target_name} 相对 peer group 的分位 (1=最好/最高, 0=最差/最低):",
+        f"下表显示 {target_name} 相对同业组的分位 (1=最好/最高, 0=最差/最低):",
         "",
-        "| 指标 | 目标值 | Peer 中位数 | 分位 (high=好) | 解读 |",
+        "| 指标 | 目标值 | 同业中位数 | 分位 (high=好) | 解读 |",
         "|------|:---:|:---:|:---:|------|",
     ])
     target_row = df[df["is_target"]].iloc[0]
@@ -425,29 +425,29 @@ def _format_markdown(
     t_pe = target_row.get("pe_ttm")
     peer_pe_med = _median([v for v in peer_df["pe_ttm"] if v is not None and v > 0])
     if t_pe is not None and t_pe > 0 and peer_pe_med and t_pe > peer_pe_med * 1.5:
-        insights.append(f"⚠️ **PE 显著高于 peer 中位数** ({t_pe:.1f}x vs {peer_pe_med:.1f}x × 1.5),估值溢价 > 50%")
+        insights.append(f"⚠️ **PE 显著高于同业中位数** ({t_pe:.1f}x vs {peer_pe_med:.1f}x × 1.5),估值溢价 > 50%")
     elif t_pe is not None and t_pe > 0 and peer_pe_med and t_pe < peer_pe_med * 0.7:
-        insights.append(f"✅ **PE 显著低于 peer 中位数** ({t_pe:.1f}x vs {peer_pe_med:.1f}x × 0.7),估值折让 > 30%")
+        insights.append(f"✅ **PE 显著低于同业中位数** ({t_pe:.1f}x vs {peer_pe_med:.1f}x × 0.7),估值折让 > 30%")
 
     t_pb = target_row.get("pb")
     peer_pb_med = _median([v for v in peer_df["pb"] if v is not None and v > 0])
     if t_pb is not None and peer_pb_med and t_pb < peer_pb_med * 0.5:
-        insights.append(f"✅ **PB 显著低于 peer** ({t_pb:.2f}x vs {peer_pb_med:.2f}x × 0.5),可能真便宜也可能基本面有问题")
+        insights.append(f"✅ **PB 显著低于同业** ({t_pb:.2f}x vs {peer_pb_med:.2f}x × 0.5),可能真便宜也可能基本面有问题")
 
     t_roe = target_row.get("roe_latest")
     peer_roe_med = _median([v for v in peer_df["roe_latest"] if v is not None])
     if t_roe is not None and peer_roe_med and t_roe < peer_roe_med - 5:
-        insights.append(f"⚠️ **ROE 显著低于 peer 中位数** ({t_roe:.2f}% vs {peer_roe_med:.2f}%),盈利能力落后")
+        insights.append(f"⚠️ **ROE 显著低于同业中位数** ({t_roe:.2f}% vs {peer_roe_med:.2f}%),盈利能力落后")
 
     t_rev = target_row.get("revenue_yoy")
     peer_rev_med = _median([v for v in peer_df["revenue_yoy"] if v is not None])
     if t_rev is not None and peer_rev_med is not None and t_rev > peer_rev_med + 10:
-        insights.append(f"✅ **营收增速显著超 peer** (+{t_rev:.1f}% vs +{peer_rev_med:.1f}%),领先行业")
+        insights.append(f"✅ **营收增速显著超同业** (+{t_rev:.1f}% vs +{peer_rev_med:.1f}%),领先行业")
     elif t_rev is not None and peer_rev_med is not None and t_rev < peer_rev_med - 10:
-        insights.append(f"⚠️ **营收增速落后 peer** ({t_rev:.1f}% vs {peer_rev_med:.1f}%),可能基本面恶化")
+        insights.append(f"⚠️ **营收增速落后同业** ({t_rev:.1f}% vs {peer_rev_med:.1f}%),可能基本面恶化")
 
     if not insights:
-        insights.append("ℹ️ 目标公司各项指标均在 peer 中位数 ±1σ 内,估值/盈利无显著偏离")
+        insights.append("ℹ️ 目标公司各项指标均在同业中位数 ±1σ 内,估值/盈利无显著偏离")
 
     lines.extend(insights)
 
@@ -457,7 +457,7 @@ def _format_markdown(
             "",
             f"## §4 行业全员估值分布 (v5.1.2,行业 {industry} 共 {industry_stats['industry_total_count']} 家)",
             "",
-            "对比维度从 5 家 peer 扩展到**全行业上市公司**:",
+            "对比维度从 5 家同业扩展到**全行业上市公司**:",
             "",
             "| 指标 | 行业最便宜 | 25 分位 | 中位数 | 75 分位 | 行业最贵 | 目标值 | 目标分位 |",
             "|------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|",
@@ -485,8 +485,8 @@ def _format_markdown(
         lines.append("")
         lines.append(
             "> 说明: 分位 0% = 行业最便宜(最低 PE/PB),100% = 最贵。"
-            "5 家 peer 是市值最近的同类对比,而行业全员包括所有同行业上市公司,"
-            "能识别 ‘市值偏离 peer 但仍在行业中位’ 的情况。"
+            "5 家同业是市值最近的同类对比,而行业全员包括所有同行业上市公司,"
+            "能识别 ‘市值偏离同业但仍在行业中位’ 的情况。"
         )
 
     lines.extend([
