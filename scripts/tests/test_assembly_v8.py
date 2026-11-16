@@ -91,17 +91,22 @@ class TestVerdictCard(unittest.TestCase):
 
 class TestTop3(unittest.TestCase):
     def test_top3_is_machine_derived_from_two_sources(self):
-        """Top3 与 research/05 §2 一致:估值透支 / 商誉 / 散户拥挤,脚本与提名同池。"""
+        """Top3 与 research/05 §2 一致:估值透支 / 商誉 / 散户拥挤,脚本与提名同池。
+
+        v8.15.1: 商誉组里脚本条与提名同为 🟠, 卡面代表改由提名担任(写手挂进来的具体证据优先于综合指标),
+        风险本身不变 —— 仍是「估值 / 商誉 / 拥挤」三件事。
+        """
         top3 = build()["top3"]
         self.assertEqual([t["rank"] for t in top3], [1, 2, 3])
         self.assertEqual(
             {t["red_flag_id"] for t in top3},
-            {fx.PB_FLAG_ID, fx.GOODWILL_FLAG_ID, fx.NOMINATION_CROWDING},
+            {fx.PB_FLAG_ID, fx.NOMINATION_GOODWILL, fx.NOMINATION_CROWDING},
         )
 
     def test_goodwill_entry_merges_script_and_nomination(self):
         """脚本商誉规则 + 写手「对赌未披露」提名 = Top3 里的同一条(不是两条)。"""
-        entry = next(t for t in build()["top3"] if t["red_flag_id"] == fx.GOODWILL_FLAG_ID)
+        entry = next(t for t in build()["top3"] if fx.GOODWILL_FLAG_ID in t["red_flag_ids"])
+        self.assertEqual(entry["red_flag_id"], fx.NOMINATION_GOODWILL)      # 同级 → 提名当代表
         self.assertEqual(set(entry["red_flag_ids"]), {fx.GOODWILL_FLAG_ID, fx.NOMINATION_GOODWILL})
         # 同组那条提名仍在同一条风险里(上一行),但**不拼进证据句** —— 首页 Top3 卡的底栏按
         # red_flag_ids 另列同组红旗、附录D 有全量;证据句只说证据。旧断言要求证据里带
@@ -116,8 +121,9 @@ class TestTop3(unittest.TestCase):
             n for n in without["path"]["red_flag_nominations"]
             if n["id"] != fx.NOMINATION_GOODWILL
         ]
-        before = {t["red_flag_id"] for t in build(nodes=without)["top3"]}
-        after = {t["red_flag_id"] for t in build()["top3"]}
+        # 比的是「哪几件风险」:提名并进商誉组后卡面代表换成提名(v8.15.1 同级提名优先), 但还是那三件事
+        before = {frozenset(t["red_flag_ids"]) for t in build(nodes=without)["top3"]}
+        after = {frozenset(set(t["red_flag_ids"]) - {fx.NOMINATION_GOODWILL}) for t in build()["top3"]}
         self.assertEqual(before, after)
 
     def test_ranking_prefers_severity_then_corroboration(self):

@@ -398,7 +398,9 @@ class TestD3ChangeBlock(unittest.TestCase):
         cb = product["change_block"]
         self.assertEqual(cb["falsification_tally"],
                          {"triggered_total": 2, "triggered_new": 1, "carried_over": 1})
-        self.assertIn("证伪本轮新触发 1 条、累计已触发 2 条", cb["alpha_summary"])
+        # v8.15.1: 首句只列短名, 累计数跟在后面(全文在逐条清单里)
+        self.assertIn("证伪本轮新触发 1 条(H1 光模块营收 <40 亿或毛利率 <30%),累计已触发 2 条",
+                      cb["alpha_summary"])
         md = arv8.render_change_block(cb)
         self.assertIn("**证伪累计已触发**:2 条", md)
 
@@ -471,8 +473,8 @@ class TestD4Succession(unittest.TestCase):
         after = _nominate(fx.nodes(), "state", self._flag("state-growth-quality-2026q3", title="三季报落空"))
         product = build(nodes=after, prev_nodes=prev, prev_script_flags=fx.script_flags())
         cb = product["change_block"]
-        self.assertNotIn("解除红旗", cb["alpha_summary"])
-        self.assertIn("延续上版的红旗 1 条", cb["alpha_summary"])
+        self.assertNotIn("解除", cb["alpha_summary"])
+        self.assertIn("红旗延续上版 1 条", cb["alpha_summary"])
         self.assertIn("**红旗延续**", arv8.render_change_block(cb))
         self.assertEqual(verdict_block.validate(product, "assembly"), [])
 
@@ -629,7 +631,8 @@ class TestL3RenderWords(unittest.TestCase):
         product = build(nodes=nodes)
         html = build_html.render_panel(product)
         self.assertNotIn("peer", html.replace("ROE + peer 分位", ""))     # 指标名是写手写的, 不归渲染层
-        self.assertIn("同业分位 0% 分位", html)
+        self.assertIn("同业 0% 分位", html)                              # v8.15.1: 不再叠成「同业分位 0% 分位」
+        self.assertNotIn("同业分位 0% 分位", html)
         md = arv8.render_panel(product["panel"], product["red_mark_map"])
         self.assertIn("| 同业分位 |", md)
         self.assertNotIn("| peer 分位 |", md)

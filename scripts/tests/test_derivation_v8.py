@@ -182,10 +182,15 @@ class TestTableSlots(unittest.TestCase):
         self.assertEqual(d.expand_tables(body, {"node": "odds"}), body)
 
 
+def _sotp_total_row(table: str) -> str:
+    """主表的合计行(v8.15.1 起主表下面还有表下注与「为什么给这个倍数」表, 合计行不再是最后一行)。"""
+    return next(l for l in table.splitlines() if l.startswith("| **企业价值"))
+
+
 class TestTableRendering(unittest.TestCase):
     def test_sotp_total_row_walks_the_whole_chain(self):
         """合计行必须把 企业价值 → 净负债 → 股权 → ÷股本 → 每股 五步全走完 —— 就是票 08 丢掉的那步。"""
-        row = d.render_sotp(golden()["derivation"]).splitlines()[-1]
+        row = _sotp_total_row(d.render_sotp(golden()["derivation"]))
         for piece in ("企业价值 1,170 亿", "净负债 120 亿", "股权 1,050 亿", "18.3161 亿股", "57 元/股"):
             self.assertIn(piece, row)
 
@@ -193,13 +198,15 @@ class TestTableRendering(unittest.TestCase):
         """有净现金时 net_debt 为负 —— 合计行写「+ 净现金」, 不写「− 净负债 -X」(华特 R3 交付评审)。"""
         deriv = golden()["derivation"]
         deriv["sotp"]["net_debt"] = -2.96
-        row = d.render_sotp(deriv).splitlines()[-1]
+        row = _sotp_total_row(d.render_sotp(deriv))
         self.assertIn("+ 净现金 2.96 亿", row)
         self.assertNotIn("净负债 -", row)
 
     def test_segment_row_carries_basis_and_falsifier(self):
+        """理由与证伪不再挤在主表末列, 另起「分部 | 为什么给这个倍数 | 什么情况算看错」(v8.15.1)。"""
         table = d.render_sotp(golden()["derivation"])
-        self.assertIn("40x 已含 AI 溢价;证伪——毛利率跌破 30%", table)
+        self.assertIn("| 分部 | 为什么给这个倍数 | 什么情况算看错 |", table)
+        self.assertIn("| 光模块(索尔思) | 毛利率 36.74% 全集团最高,40x 已含 AI 溢价 | 毛利率跌破 30% |", table)
 
     def test_probability_renders_without_a_float_tail(self):
         """0.3 × 100 的浮点尾巴不许印成「30.0%」。"""

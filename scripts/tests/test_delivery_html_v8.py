@@ -567,7 +567,11 @@ class TestContractDrivenFigures(_Built):
         self.assertIn("80%", fig)           # 占比直标
 
     def test_pfn_says_obligation_or_option_in_words(self):
-        self.assertIn("市场已收费的义务", self.figure("pfn"))
+        """图例与③正文同一种说法(v8.15.1:旧图例「市场已收费的义务/彩票」与正文对不上, 另一档挂英文)。"""
+        fig = self.figure("pfn")
+        self.assertIn("公司必须做到的任务,不是白送的机会", fig)
+        self.assertNotIn("彩票", fig)
+        self.assertNotIn("free option", build_html.PFN_KIND_PLAIN["free_option"])
 
     def test_pfn_has_an_alt_text(self):
         self.assertRegex(self.figure("pfn"), r'role="img" aria-label="[^"]{20,}"')
@@ -589,14 +593,17 @@ class TestContractDrivenFigures(_Built):
         self.assertLess(min(widths), 100.0)
 
     def test_ladder_never_silently_drops_unquantified_tails(self):
-        """量不到价格的那几条不上阶梯, 但要报出条数并指向正文 —— 不静默丢, 也不在图下重建一堵墙。
+        """量不到价格的那几条不上阶梯, 但要说「还有、去哪看」—— 不静默丢, 也不在图下重建一堵墙。
 
         票 10 交付评审:图脚原本把每条的名字与量级都摊开(实测 380 字), 在 390px 上
-        直接把本章判定推下一屏。内容本来就在本章正文的左尾清单里, 图脚只负责说「还有几条、去哪看」。
+        直接把本章判定推下一屏。内容本来就在本章正文里, 图脚只负责指路。
+        v8.15.1:不再写条数(YAML 条数与正文表行数可以不同, 立讯 8 vs 7), 也不说「左尾」。
         """
         fig = self.figure("ladder")
-        self.assertIn("另有 2 条左尾量不到价格", fig)
+        self.assertIn("另有量不到股价的最坏情形", fig)
         self.assertIn("见本章正文", fig)
+        self.assertNotIn("左尾", fig)
+        self.assertNotRegex(fig, r"另有 \d+ 条")
         self.assertNotIn("质押占其持股 34.6%", fig)      # 量级明细不再复制进图脚
 
     def test_ladder_label_never_cuts_a_number_in_half(self):
