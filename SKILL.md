@@ -5,7 +5,7 @@ license: MIT
 compatibility: "需要 Python 3.11+、网络、TUSHARE_TOKEN(A 股/港股);需要能派子代理的 agent:Claude Code / OpenCode(含 DeepSeek)/ Codex(多代理模式),对照表见 references/harness.md"
 metadata:
   argument-hint: "<company-name> [ticker] [--review | --compare]"
-  version: "8.14"
+  version: "8.15"
   opencode/slash: "true"
 argument-hint: <company-name>
 ---

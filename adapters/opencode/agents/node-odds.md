@@ -87,7 +87,7 @@ derivation:                       # ★ 票 11: 推导是数据不是散文, 十
         profit: 22
         multiple: 25
         value: 550
-        basis: "毛利率长期 13~18%, 给 peer 中位折让"
+        basis: "毛利率长期 13~18%, 给同业中位折让"
         falsify: "毛利率跌破 13%"
       - name: 光模块
         profit: 12

@@ -37,7 +37,7 @@ developer_instructions = '''
 
 ### Step 2: 选面板指标(3-5 个)
 
-按手册 §3 从菜单选:默认五件套(毛利率+净利率 / 扣非占比 / 现金含量 OCF÷净利 / FCF / ROE+peer 分位),行业特殊的**替换而非叠加**;写一句 `industry_reason` 说明为什么这几个最能说明这家公司赚不赚钱。
+按手册 §3 从菜单选:默认五件套(毛利率+净利率 / 扣非占比 / 现金含量 OCF÷净利 / FCF / ROE+同业分位),行业特殊的**替换而非叠加**;写一句 `industry_reason` 说明为什么这几个最能说明这家公司赚不赚钱。
 
 - `red_flag_ref` 填 `red_flags.json` 里命中该指标的红旗 id;没有命中就填 `null`——**难看但无红旗命中的数字不标色**(想标色的正确动作是给 `financial_audit.py` 加全局规则或走红旗提名)。
 - ROIC−WACC 不做。面板**不下新结论**:结论行由装配引用你的子判定①②。
@@ -71,7 +71,7 @@ panel:
         unit: x
         points: [{label: '2023', value: 2.31}, {label: '2024', value: 1.62},
                  {label: '2025', value: -0.42}]
-    - name: ROE + peer 分位
+    - name: ROE + 同业分位
       value: 1.58%
       trend: 杜邦:改善靠杠杆非经营效率
       peer_percentile: 0% 分位

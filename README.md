@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="https://github.com/leafpaper/Ashare-researchreport/actions/workflows/tests.yml"><img src="https://github.com/leafpaper/Ashare-researchreport/actions/workflows/tests.yml/badge.svg" alt="tests"></a>
-  <img src="https://img.shields.io/badge/version-v8.14-blue" alt="version">
+  <img src="https://img.shields.io/badge/version-v8.15-blue" alt="version">
   <img src="https://img.shields.io/badge/markets-A%E8%82%A1%20%7C%20%E6%B8%AF%E8%82%A1%20%7C%20%E7%BE%8E%E8%82%A1-green" alt="markets">
   <img src="https://img.shields.io/badge/agents-Claude%20Code%20%7C%20OpenCode%20%7C%20Codex-orange" alt="agents">
   <img src="https://img.shields.io/badge/license-MIT-lightgrey" alt="license">
@@ -38,7 +38,7 @@
 | 拉数据 | 三表、财务指标、股东与解禁、资金流、同业对标 |
 | 读原文 | 下载年报、季报 PDF 逐页精读，结论带页码出处，不靠第三方摘要 |
 | 查红旗 | 11 个会计审计框架机械扫雷：盈余质量、财务造假概率、破产风险、关联交易…… |
-| 算价格 | 把股价拆成「已经赚到的」和「为想象多付的」，反推现价在赌什么，再给合理价区间 |
+| 算价格 | 把股价拆成「已经赚到的」和「还没挣到的那部分」，反推现价在赌什么，再给合理价区间 |
 
 ## 先看成品
 
@@ -107,7 +107,7 @@ echo 'export TUSHARE_TOKEN="你的token"' >> ~/.zshrc && source ~/.zshrc        
 |---|---|---|
 | ① 质地 | 是不是好公司 | 生意赚不赚钱、赚的钱是不是真的、护城河在不在、管理层可不可信、财务底子稳不稳 |
 | ② 状态 | 在变好吗 | 只认财报、订单、官方披露这类实锤，传闻一律打折；并写明**该等什么**：哪份报告、哪个数字过哪条线 |
-| ③ 赔率 | 贵不贵 | 股价拆成「已经赚到的」和「为想象多付的」，想象占比越大，越是必须兑现的任务 |
+| ③ 赔率 | 贵不贵 | 股价拆成「已经赚到的」和「还没挣到的那部分」，后者占比越大，越是必须兑现的任务 |
 | ④ 路径 | 扛得住吗 | 先量最坏能跌到哪，方向对但中途腰斩拿不住，照样亏 |
 | ⑤ 决策 | 现在该怎么办 | 行动档位、仓位、该等什么、什么情况下认错 |
 
@@ -196,6 +196,7 @@ Phase 6  质量环    lint_v8 18 条 → reviewer-logic ∥ reviewer-delivery �
 
 | 版本 | 关键变化 |
 |---|---|
+| **v8.15** | 立讯增量复查评审十类交付缺陷：最新期按报告期判、红旗人话标题与更正通道、较上版变化说人话并标期别、分部假跨档、北向不算内部人 |
 | **v8.14** | 改名「A股研报」，README 重写，仓库改名 `Ashare-researchreport` |
 | **v8.13** | 装上就能用：Agent Skills 标准 frontmatter、一键装到 Claude Code / OpenCode / Codex、子代理文件一源三出 |
 | **v8.11** | 质量环省钱四条：干净会话硬规则 / 主 agent 不改节点 / 判断类归零即通过 / HTML 只在终检读一次 |

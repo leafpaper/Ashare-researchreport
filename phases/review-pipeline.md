@@ -74,8 +74,9 @@
     --prev-run-dir {artifacts_dir}/runs/{prev_run_date} --metric-deltas {run_dir}/triage.json
 ```
 
-- `--prev-run-dir` + `--metric-deltas` 装出首页「较上版变化」区块:首句机器答「阿尔法变了没」,
-  三元组/档位对比、翻转节点、红旗与证伪变化、关键指标 delta 全部 diff 自 YAML 块与分诊单。
+- `--prev-run-dir` + `--metric-deltas` 装出首页「较上版变化」区块:首句机器答「判断变了没」,
+  档位与②③④三格对比、翻转节点、红旗变化(含「延续」:提名 id 只换期别后缀)、证伪本轮新触发 vs 累计、
+  关键指标 delta(两侧带期别)全部 diff 自 YAML 块与分诊单。
 - **硬规则 2 在这里机判**(质地判定翻转 或 档位跨两档 → `change_block.full_rerun_advice.advised=true`,
   首页明示「建议全量重跑」)——**照常产出本次报告**,完成消息里把这句转告用户。
 - 之后 **Phase 6 全套不打折**:`lint_v8` → reviewer-logic ∥ reviewer-delivery → 修正循环 →
