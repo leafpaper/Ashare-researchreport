@@ -175,6 +175,24 @@ def normalize_audit(audit: dict | list) -> list[dict]:
     return items
 
 
+def renormalize_script_ids(flags: list[dict]) -> list[dict]:
+    """把旧快照里的脚本红旗 id 换算成当前算法的 id(framework + signal 文字骨架)。
+
+    v8.9 之前的 id 把 signal 里的数值也哈希进去(「F=5/9」「Z=7.080」各算一个 id);增量复查的
+    基线快照(baseline/red_flags.json)若产于那时, 同一条红旗前后两个 id, 较上版变化就报出
+    「红旗新增 F=5/9 / 红旗解除 F=5/9」这种成对噪音 —— 东山 08-24 已上线版本实测(v8.15 D4)。
+    只动 source=script 且带 framework 的条目(normalize_audit 产的形状), 提名条原样。
+    """
+    out = []
+    for flag in flags:
+        if flag.get("source") == "script" and flag.get("framework") and flag.get("title"):
+            fid = flag_id(flag["framework"], flag["title"])
+            if fid != flag.get("id"):
+                flag = dict(flag, id=fid)
+        out.append(flag)
+    return out
+
+
 def display_title(flag: dict) -> str:
     """读者看到的红旗标题: 脚本条用 audit 的人话标题, 提名条本来就是人话。"""
     return flag.get("display_title") or flag.get("title") or flag.get("id", "")

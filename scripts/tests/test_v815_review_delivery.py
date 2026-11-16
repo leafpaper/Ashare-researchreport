@@ -452,6 +452,20 @@ class TestD4Succession(unittest.TestCase):
         self.assertEqual(assembly.flag_family("path-nom-x-fy2025"), "path-nom-x")
         self.assertEqual(assembly.flag_family("odds-nom-ex-equity-pe"), "odds-nom-ex-equity-pe")
 
+    def test_pre_v89_baseline_ids_are_renormalized(self):
+        """东山 08-24 已上线版本实测:基线快照产于 v8.9 之前(id 含数值), 较上版变化报出
+        「红旗新增 F=5/9 / 红旗解除 F=5/9」成对噪音。换算成当前 id 后同一条红旗只算一条。"""
+        old = {"id": "piotroski-f-score-c262c9", "level": "🟡", "title": "F=5/9", "evidence": "e",
+               "source": "script", "node": "quality", "metric_refs": ["f_score"],
+               "framework": "Piotroski F-Score"}
+        new = dict(old, id=rf.flag_id("Piotroski F-Score", "F=5/9"))
+        fixed = rf.renormalize_script_ids([old])
+        self.assertEqual(fixed[0]["id"], new["id"])
+        self.assertEqual(old["id"], "piotroski-f-score-c262c9")          # 不改调用方的原对象
+        self.assertEqual(assembly._flag_changes(fixed, [new]), [])
+        nom = {"id": "keep-me", "source": "nomination", "title": "x", "framework": "X"}
+        self.assertEqual(rf.renormalize_script_ids([nom])[0]["id"], "keep-me")
+
     def test_change_block_reports_continuation_not_resolution(self):
         prev = _nominate(fx.nodes(), "state", self._flag("state-growth-quality-2026h1", title="增收不增利"))
         after = _nominate(fx.nodes(), "state", self._flag("state-growth-quality-2026q3", title="三季报落空"))

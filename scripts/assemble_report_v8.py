@@ -505,6 +505,8 @@ def assemble_run(
         if baseline_flags.exists():
             data = json.loads(baseline_flags.read_text(encoding="utf-8"))
             prev_script_flags = list(data.get("red_flags") or []) if isinstance(data, dict) else list(data)
+            # 快照可能产于 v8.9 之前(id 含数值): 换算成当前 id, 免得同一条红旗报成「解除 + 新增」
+            prev_script_flags = rf.renormalize_script_ids(prev_script_flags)
         else:
             prev_script_flags = load_audit_flags(None, [prev_run_dir])
 

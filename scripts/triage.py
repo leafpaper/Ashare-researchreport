@@ -46,6 +46,7 @@ from . import assembly
 from . import manifest as manifest_mod
 from . import node_graph
 from . import periods
+from . import red_flags as rf
 from . import verdict_block
 
 TRIAGE_NAME = "triage.json"
@@ -610,6 +611,9 @@ def run_triage(company_dir: Path, run_dir: Path, apply_reuse: bool = False) -> d
     m_after = _read_json(company_dir / "metrics.json")
     flags_before = _flag_list(_read_json(bl / "red_flags.json"))
     flags_after = _flag_list(_read_json(company_dir / "red_flags.json"))
+    # 基线快照可能产于 v8.9 之前(脚本红旗 id 含数值): 换算成当前 id 再 diff(v8.15 D4)
+    if flags_before is not None:
+        flags_before = rf.renormalize_script_ids(flags_before)
     seg_compare = compare_segments(bl / "fina_mainbz.parquet",
                                    company_dir / "raw_data" / "fina_mainbz.parquet")
     seg_before = seg_after = None          # 主流程只用 seg_compare(两侧都缺时为 None → 走「无变化信号」)
