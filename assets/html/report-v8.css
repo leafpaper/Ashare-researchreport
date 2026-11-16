@@ -91,6 +91,8 @@ h1,h2,h3,h4{line-height:1.35; text-wrap:balance}
   border:1px solid var(--hair); border-radius:3px; padding:1px 6px; white-space:nowrap;
 }
 .chip.man{border-style:dashed}
+a.chip{text-decoration:none}
+a.chip:hover,a.chip:focus-visible{color:var(--accent); border-color:var(--accent)}
 
 /* ---------------------------------------------------------------- 决断卡瓦片 */
 .cards5{display:grid; grid-template-columns:repeat(5,1fr); gap:10px}

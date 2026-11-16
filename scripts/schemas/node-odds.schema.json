@@ -92,12 +92,12 @@
                 }
               }
             },
-            "profit_label": { "type": "string", "minLength": 1, "description": "分部利润列的表头, 缺省「年化利润」;口径不同就跟着改(如「年化扣非」)" },
+            "profit_label": { "type": "string", "minLength": 1, "description": "分部利润列的表头, 缺省「年化利润」;口径不同就跟着改(如「年化扣非」)。表头只放短名, 口径说明写进括号里(「近四季利润(扣非剔联营按分部毛利分摊)」), 渲染时括号里那段下沉成表下注" },
             "enterprise_value": { "type": "number", "description": "缺省 = 分部加总;显式落盘时机检两者一致(允许四舍五入差)" },
             "net_debt": { "type": "number" },
             "equity_value": { "type": "number", "description": "= EV − net_debt(机检)" },
             "per_share": { "type": "number", "description": "= equity_value ÷ share_count(机检), 且 = anchor_range.low.value" },
-            "note": { "type": "string", "description": "合计行末格的一句注(如隐含混合 PE)" }
+            "note": { "type": "string", "description": "分部表的表下注(如隐含混合市盈率);v8.15.1 起渲染在主表下方, 不再挤在合计行末格" }
           }
         },
         "dcf": {
@@ -136,7 +136,7 @@
                   "name": { "type": "string", "minLength": 1 },
                   "p": { "type": "number", "minimum": 0, "maximum": 1, "description": "概率;全部情景加总 = 1(机检)" },
                   "pv": { "type": "number", "description": "该情景的折现值(股权口径)" },
-                  "cagr": { "type": "number", "description": "**收入**五年复合增速, 百分数(如 25 表示 25%)。口径必须是收入: 装配层的情景表表头写死「收入 5 年 CAGR」, 填成利润 CAGR 时 schema 与 R12 十条闭合会**全绿**、渲染出来的表却是错标签 —— 这是机检抓不到的静默错标。该情景的终局利润 = 收入 × margin, 两列相乘得出, 不要把利润增速填进这一列。" },
+                  "cagr": { "type": "number", "description": "**收入**五年复合增速, 百分数(如 25 表示 25%)。口径必须是收入: 装配层的情景表表头写死「收入 5 年年复合增速」, 填成利润 CAGR 时 schema 与 R12 十条闭合会**全绿**、渲染出来的表却是错标签 —— 这是机检抓不到的静默错标。该情景的终局利润 = 收入 × margin, 两列相乘得出, 不要把利润增速填进这一列。" },
                   "margin": { "type": "number", "description": "成熟期净利率, 百分数" },
                   "exit_multiple": { "type": "number", "exclusiveMinimum": 0 }
                 }

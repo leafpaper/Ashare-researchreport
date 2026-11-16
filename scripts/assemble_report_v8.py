@@ -177,6 +177,17 @@ def render_top3(top3: list[dict]) -> str:
 CHANGE_TRIAD_ROWS = (("state", "② 在变好吗"), ("odds", "③ 贵不贵"), ("path", "④ 扛得住吗"))
 
 
+def change_triad_rows(cb: dict) -> list[tuple[str, str, str]]:
+    """较上版变化的②③④三行:两列都只放判定的取值域段, 内部词按人话词典换掉 —— md 与 HTML 共用。
+
+    上版列原来整句贴上版 YAML 的判定(带「高信仰体检 6/7」「仅注意力」), 本版列也是整句;
+    现在两列同一处理(assembly.plain_verdict_head), 口径对称(立讯 11-13 终检)。
+    """
+    tb, ta = cb["triad_before"], cb["triad_after"]
+    return [(label, assembly.plain_verdict_head(tb[k]), assembly.plain_verdict_head(ta[k]))
+            for k, label in CHANGE_TRIAD_ROWS]
+
+
 def change_cell(value: str, label: str | None) -> str:
     """指标 delta 的一格: 数值 + 期别(triage 带了期别才有)。"""
     return f"{value}({label})" if label else str(value)
@@ -213,7 +224,7 @@ def render_change_block(cb: dict) -> str:
         f"| 行动档位 | {_cell(assembly.gear_plain(cb['gear_before']))} "
         f"| {_cell(assembly.gear_plain(cb['gear_after']))} |",
     ]
-    lines += [f"| {label} | {_cell(tb[k])} | {_cell(ta[k])} |" for k, label in CHANGE_TRIAD_ROWS]
+    lines += [f"| {label} | {_cell(b)} | {_cell(a)} |" for label, b, a in change_triad_rows(cb)]
     notes = []
     for delta in cb["metric_deltas"]:
         lines.append(
@@ -237,13 +248,13 @@ def render_change_block(cb: dict) -> str:
     for label, text in falsification_lines(cb):
         lines.append(f"- **{label}**:{text}")
     if cb["red_flag_changes"]:
-        # 文案与统计同源: 🟢/ℹ️ 单列「绿灯更新」, 不借红旗名头
+        # 文案与统计同源: 🟢 叫「绿灯更新」、ℹ️ 叫「信息更新」, 都不借红旗名头
         hard = [i for i in cb["red_flag_changes"] if not assembly.flag_change_is_soft(i)]
         soft = [i for i in cb["red_flag_changes"] if assembly.flag_change_is_soft(i)]
         for item in hard:
             lines.append(f"- **{flag_change_verb(item)}**:{item.get('note') or item['id']}")
         for item in soft:
-            lines.append(f"- **绿灯更新**:{item.get('note') or item['id']}")
+            lines.append(f"- **{assembly.soft_flag_label(item)}**:{item.get('note') or item['id']}")
     else:
         lines.append("- **红旗清单**:无增减")
     if cb["full_rerun_advice"]["advised"]:
@@ -299,6 +310,11 @@ def render_appendix_d(flags: list[dict]) -> str:
         elif flag.get("supersedes") and not flag.get("supersedes_missing"):
             target = by_id.get(flag["supersedes"], {})
             title += f"(更正自动审计条目「{rf.display_title(target) or flag['supersedes']}」)"
+        # 同主题声明: 读者在首页只看到一张卡, 附录D 要说清另一条为什么没上卡
+        same = [by_id[t] for t in rf.theme_targets(flag) if t in by_id]
+        if same:
+            title += ("(与" + "、".join(f"「{rf.display_title(t)}」" for t in same)
+                      + "讲同一件事,首页合并成一张卡)")
         lines.append(
             f"| {flag['level']} | {_cell(title)} | {_cell(flag['evidence'])} "
             f"| {rf.SOURCE_LABELS[flag['source']]} | {rf.NODE_LABELS[flag['node']]} "
@@ -344,8 +360,51 @@ _PROVENANCE_LINE = re.compile(
 _PHASE_ASIDE = re.compile(r"\s*[(（][^()（）]*Phase\s*\d[^()（）]*[)）]")
 
 
+# 写手指令与版本号(v8.15.1;立讯 11-13 终检:附录A/B/C 的标题里露着
+# 「(★ 若 actual 已存在, 主报告必须用 actual, 禁止用预告口径)」「★ v5.1.2 新增」「(v5.1.2,行业 … 共 6 家)」):
+#   · 星号括注 = 写给写手的指令或数据表名(「(★ income)」), 整段删;
+#   · 版本标签 = 流水线历史, 读者无从理解;括注里的「v5.1.2,」只删版本、留后半句;
+#   · 「(capital_flow.md §3 已自动判定)」这类指向采集文件的括注, 整段删;
+#   · 行首 / 单元格首 / 标题里装饰用的 ★ 去掉(它在采集产物里的意思是「写手注意」)。
+_STAR_ASIDE = re.compile(r"\s*[(\uff08]\s*\u2605[^()\uff08\uff09]*[)\uff09]")
+_VERSION_ASIDE = re.compile(r"\s*\u2605?\s*[(\uff08]\s*v\d+(?:\.\d+)+\s*新增\s*[)\uff09]")
+_VERSION_STAR = re.compile(r"\s*\u2605\s*v\d+(?:\.\d+)+\s*新增")
+_VERSION_LEAD = re.compile(r"([(\uff08])\s*v\d+(?:\.\d+)+\s*[,\uff0c\u3001;\uff1b:\uff1a]\s*")
+_VERSION_BARE = re.compile(r"(?<![\w./-])v\d+\.\d+(?:\.\d+)?(?![\w.])\s*(?:新增)?\s*")
+# 「(来自 income.parquet 最新行 end_date=20260630)」→「(截至 2026-06-30)」: 表名与字段名不要, 期别留给读者
+_PARQUET_ASOF = re.compile(r"[(（][^()（）]*\.parquet[^()（）]*end_date=(\d{4})(\d{2})(\d{2})[^()（）]*[)）]")
+_FILE_ASIDE = re.compile(r"\s*[(\uff08][^()\uff08\uff09]*\b\w+\.(?:md|json|parquet)\b[^()\uff08\uff09]*[)\uff09]")
+_LEAD_STAR = re.compile(r"^(\s*(?:[#>*_]+\s*)*)\u2605\s*")
+_CELL_STAR = re.compile(r"\|\s*((?:\*\*)?)\s*\u2605\s*")
+_EMPTY_PAREN = re.compile(r"[(\uff08]\s*[)\uff09]")
+# capital_flow.md 抬头那句旧口径说明:英文表名 + 一个写死的「22.61%」(不是本公司的数, 五家报告里一模一样)
+LEGACY_CONTROL_NOTE = re.compile(r"^\*\*(?:v\d+(?:\.\d+)+\s*)?口径说明\*\*.*top10_holders.*$")
+CONTROL_NOTE_PLAIN = (
+    "**口径说明**: 控盘指标以全体前十大股东(含限售股)合计持股为主口径, 只看流通股的前十大降为补充"
+    "(限售比例高的公司只看流通股会严重低估真实控盘)。"
+)
+
+
+def _strip_writer_notes(line: str) -> str:
+    """一行里的写手指令、版本标签、采集文件括注、装饰星号(见上)。"""
+    if LEGACY_CONTROL_NOTE.match(line.strip()):
+        return CONTROL_NOTE_PLAIN
+    line = _STAR_ASIDE.sub("", line)
+    line = _VERSION_ASIDE.sub("", line)
+    line = _VERSION_STAR.sub("", line)
+    line = _VERSION_LEAD.sub(r"\1", line)
+    line = _VERSION_BARE.sub("", line)
+    line = _PARQUET_ASOF.sub(lambda m: f"(截至 {m.group(1)}-{m.group(2)}-{m.group(3)})", line)
+    line = _FILE_ASIDE.sub("", line)
+    if line.lstrip().startswith("#"):
+        line = line.replace("\u2605", "").rstrip()
+    line = _LEAD_STAR.sub(r"\1", line)
+    line = _CELL_STAR.sub(r"| \1", line)
+    return _EMPTY_PAREN.sub("", line)
+
+
 def _strip_machine_provenance(md: str) -> str:
-    """挂载前洗掉本机路径与「由 scripts/X.py 自动生成」类脚注(只改装配输出)。"""
+    """挂载前洗掉本机路径、「由 scripts/X.py 自动生成」类脚注、写手指令与版本标签(只改装配输出)。"""
     out = []
     for line in md.splitlines():
         stripped = line.strip()
@@ -357,6 +416,7 @@ def _strip_machine_provenance(md: str) -> str:
             line = re.sub(r"([::])\s*\(([^()]*)\)\s*$", r"\1 \2", line)   # 「数据源: (Tushare parquet)」→「数据源: Tushare parquet」
             line = re.sub(r"([::])\s+$", r"\1", line)
         line = _PHASE_ASIDE.sub("", line)
+        line = _strip_writer_notes(line)
         if _SCRIPT_FILE.search(line):                 # 行内残留的脚本文件名: 删掉, 顺手收拾空括号
             line = re.sub(r"[(（]\s*[)）]", "", _SCRIPT_FILE.sub("", line))
         out.append(line)

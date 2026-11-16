@@ -253,28 +253,11 @@ def _total_row(cells: int, head: str, tail: str, note: str = "") -> str:
     return "| " + " | ".join([f"**{head}**", *middle, f"**{tail}**"]) + " |"
 
 
-def render_sotp(derivation: dict) -> str:
-    """叙事分部 SOTP 表: 一行一分部, 合计行走完 EV → 净负债 → 股权 → ÷股本 → 每股。"""
+def _sotp_total_head(derivation: dict) -> tuple[str, str]:
+    """合计行的(算式, 结果):企业价值 → 净负债/净现金 → 股权 → ÷股本 → 每股。"""
     sotp = derivation.get("sotp") or {}
     unit, ps_unit = derivation.get("unit") or "", derivation.get("per_share_unit") or ""
     share = derivation.get("share_count") or {}
-    segments = sotp.get("segments") or []
-    if not segments:
-        raise DerivationError("sotp.segments 为空, 渲染不出分部表")
-
-    lines = [
-        f"| 分部 | {sotp.get('profit_label') or '年化利润'} | 倍数 | 估值 | 倍数理由与证伪指标 |",
-        "|---|---:|:---:|---:|---|",
-    ]
-    for seg in segments:
-        basis = (seg.get("basis") or "").strip()
-        falsify = (seg.get("falsify") or "").strip()
-        note = f"{basis};证伪——{falsify}" if basis and falsify else (basis or (f"证伪——{falsify}" if falsify else ""))
-        lines.append(
-            f"| {seg.get('name', '')} | {_fmt(seg.get('profit'), unit)} | "
-            f"{_mult(seg.get('multiple'))} | {_fmt(seg.get('value'), unit)} | {note} |"
-        )
-
     seg_vals = _seg_values(sotp)
     ev = sotp.get("enterprise_value")
     ev = ev if isinstance(ev, (int, float)) else sum(seg_vals)
@@ -289,7 +272,102 @@ def render_sotp(derivation: dict) -> str:
         f"企业价值 {_fmt(ev, unit)} {bridge} = "
         f"股权 {_fmt(sotp.get('equity_value'), unit)} ÷ {_fmt(share.get('value'), share.get('unit'))}"
     )
-    lines.append(_total_row(5, head, f"= {_fmt(sotp.get('per_share'), ps_unit)}/股", sotp.get("note") or ""))
+    return head, f"= {_fmt(sotp.get('per_share'), ps_unit)}/股"
+
+
+def render_sotp_rows(derivation: dict) -> str:
+    """SOTP 的「逻辑行」形态:一行 = 一个分部的数 + 它的倍数理由与证伪(v8.15.1 之前的读者版式)。
+
+    **只给 lint 用**(R3 数字唯一 home / R4 章预算):读者版式把理由拆到第二张表, 这是排版;
+    而 R3 的出处作用域是「一行」—— 分部行里的异地数字靠同一行理由格里的「(①质地)」交代来源,
+    合计行靠末格的注交代。拆表后按物理行判, 东山合计行的「净负债 153.5 亿」就成了异地裸数字(实测)。
+    拆表不改写手写了什么, 所以这两条规则仍按逻辑行判, 行数也不因排版多出来。
+    """
+    sotp = derivation.get("sotp") or {}
+    unit = derivation.get("unit") or ""
+    segments = sotp.get("segments") or []
+    if not segments:
+        raise DerivationError("sotp.segments 为空, 渲染不出分部表")
+    lines = [
+        f"| 分部 | {sotp.get('profit_label') or '年化利润'} | 倍数 | 估值 | 倍数理由与证伪指标 |",
+        "|---|---:|:---:|---:|---|",
+    ]
+    for seg in segments:
+        basis = (seg.get("basis") or "").strip()
+        falsify = (seg.get("falsify") or "").strip()
+        note = f"{basis};证伪——{falsify}" if basis and falsify else (basis or (f"证伪——{falsify}" if falsify else ""))
+        lines.append(
+            f"| {seg.get('name', '')} | {_fmt(seg.get('profit'), unit)} | "
+            f"{_mult(seg.get('multiple'))} | {_fmt(seg.get('value'), unit)} | {note} |"
+        )
+    head, tail = _sotp_total_head(derivation)
+    lines.append(_total_row(5, head, tail, sotp.get("note") or ""))
+    return "\n".join(lines)
+
+
+# 分部表的列头里常见的英文缩写 → 人话(表头归渲染层;写手 YAML 正文里的英文不在这里改)
+_LABEL_WORDS = ((re.compile(r"\bTTM\b\s*"), "近四季"),)
+_LABEL_ASIDE = re.compile(r"^(?P<head>[^(\uff08]+?)\s*[(\uff08](?P<aside>.+)[)\uff09]\s*$")
+
+
+def split_profit_label(label: str) -> tuple[str, str]:
+    """分部利润列的表头 → (短表头, 口径注)。
+
+    立讯 11-13: `profit_label` 写成「近四季利润(扣非剔联营按分部毛利分摊;末两行为账面/现金,倍数 1x)」,
+    40 字不换行的表头把整张表撑宽、理由列挤成窄条(终检判为表述 FIX)。表头只留括号前的短名,
+    括号里的口径下沉成表下注 —— 一个字不丢, 只是换了位置。
+    """
+    text = (label or "").strip() or "年化利润"
+    for pattern, plain in _LABEL_WORDS:
+        text = pattern.sub(plain, text)
+    m = _LABEL_ASIDE.match(text)
+    if m:
+        return m.group("head").strip(), m.group("aside").strip()
+    return text, ""
+
+
+def render_sotp(derivation: dict) -> str:
+    """叙事分部 SOTP:主表四列(分部|利润|倍数|估值)+ 表下注 + 「为什么给这个倍数」另起一张三列表。
+
+    原来是一张五列表, 末列「倍数理由与证伪指标」一格塞两件事、动辄上百字, 窄屏上数字列被挤成窄条
+    (立讯 11-13 终检)。主表只放算术(合计行走完 企业价值 → 净负债 → 股权 → ÷股本 → 每股),
+    理由与证伪拆成「为什么给这个倍数 | 什么情况算看错」两列各说一件事。
+    """
+    sotp = derivation.get("sotp") or {}
+    unit = derivation.get("unit") or ""
+    segments = sotp.get("segments") or []
+    if not segments:
+        raise DerivationError("sotp.segments 为空, 渲染不出分部表")
+
+    profit_head, profit_aside = split_profit_label(sotp.get("profit_label") or "")
+    lines = [
+        f"| 分部 | {profit_head} | 倍数 | 估值 |",
+        "|---|---:|:---:|---:|",
+    ]
+    for seg in segments:
+        lines.append(
+            f"| {seg.get('name', '')} | {_fmt(seg.get('profit'), unit)} | "
+            f"{_mult(seg.get('multiple'))} | {_fmt(seg.get('value'), unit)} |"
+        )
+
+    head, tail = _sotp_total_head(derivation)
+    lines.append(_total_row(4, head, tail))
+
+    notes = []
+    if profit_aside:
+        notes.append(f"注:「{profit_head}」的口径——{profit_aside.rstrip('。')}。")
+    if (sotp.get("note") or "").strip():
+        notes.append(f"注:{sotp['note'].strip().rstrip('。')}。")
+    for note in notes:
+        lines += ["", note]
+
+    reasons = [
+        (seg.get("name", ""), (seg.get("basis") or "").strip(), (seg.get("falsify") or "").strip())
+        for seg in segments
+    ]
+    if any(basis or falsify for _, basis, falsify in reasons):
+        lines += ["", "| 分部 | 为什么给这个倍数 | 什么情况算看错 |", "|---|---|---|"]
+        lines += [f"| {name} | {basis or '—'} | {falsify or '—'} |" for name, basis, falsify in reasons]
     return "\n".join(lines)
 
 
@@ -318,7 +396,8 @@ def render_dcf(derivation: dict) -> str:
         raise DerivationError("dcf.scenarios 为空, 渲染不出情景表")
 
     lines = [
-        "| 情景 | 概率 | 收入 5 年 CAGR | 成熟净利率 | 退出 PE | 折现值 |",
+        # 表头说人话(立讯 11-13 终检:「CAGR」「退出 PE」是英文缩写);退出倍数就是第 5 年按多少倍市盈率卖出
+        "| 情景 | 概率 | 收入 5 年年复合增速 | 成熟净利率 | 第 5 年市盈率 | 折现值 |",
         "|---|:---:|:---:|:---:|:---:|---:|",
     ]
     for s in scenarios:
@@ -337,6 +416,8 @@ def render_dcf(derivation: dict) -> str:
 
 
 RENDERERS = {"sotp": render_sotp, "discount_rate": render_discount_rate, "dcf": render_dcf}
+# lint 的 R3 / R4 按「逻辑行」判(见 render_sotp_rows), 其余与读者版式相同
+ROW_RENDERERS = dict(RENDERERS, sotp=render_sotp_rows)
 
 
 def slots_in(body: str) -> set[str]:
@@ -349,7 +430,7 @@ def missing_slots(body: str) -> list[str]:
     return [s for s in TABLE_SLOTS if s not in slots_in(body)]
 
 
-def expand_tables(body: str, odds_block: dict) -> str:
+def expand_tables(body: str, odds_block: dict, layout: str = "reader") -> str:
     """把 `{{sotp}}` / `{{discount_rate}}` / `{{dcf}}` 换成机器渲染的表。
 
     没有 derivation(旧 run / 半成品)就原样返回 —— 装配不因为缺推导块而炸,
@@ -358,4 +439,5 @@ def expand_tables(body: str, odds_block: dict) -> str:
     derivation = (odds_block or {}).get("derivation")
     if not derivation or not _SLOT_RE.search(body or ""):
         return body
-    return _SLOT_RE.sub(lambda m: RENDERERS[m.group(1)](derivation), body)
+    renderers = ROW_RENDERERS if layout == "rows" else RENDERERS
+    return _SLOT_RE.sub(lambda m: renderers[m.group(1)](derivation), body)

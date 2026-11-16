@@ -187,11 +187,27 @@ def rule_schema(nodes_dir: Path) -> tuple[RuleResult, dict | None]:
 _TOKEN_SPLIT = re.compile(r"[^\w一-龥]+")
 
 
+_DECIMAL = re.compile(r"\d+\.\d+")
+# 人话标题里的纯中文短语至少这么长才算指纹(「个百分点」「灰色地带」这种四字词哪章都可能出现)
+PLAIN_PHRASE_MIN = 5
+
+
 def flag_tokens(flag: dict) -> list[str]:
-    """红旗的「叙述指纹」= 标题里的词 + 证据里的前两个数字短语(命中任一即算讲过)。"""
+    """红旗的「叙述指纹」= 标题里的词 + 证据里的前两个数字短语 + 人话标题里的数字与短语(命中任一即算讲过)。
+
+    脚本红旗的 title 是规则串(「Z=2.837」), 切出来只剩「837」;v8.15 给脚本条加了人话标题
+    (「破产风险指标 Z 值 2.84,落在灰色地带」), 写手照人话写「Z 值 2.84」却不算叙述过(v8.15.1 补)。
+    人话标题贡献:带量纲的数字短语、小数(2.84)、≥5 字的中文短语。
+    """
     tokens = [t for t in _TOKEN_SPLIT.split(flag.get("title", "")) if len(t) >= 2]
     tokens += [m.group(0) for m in NUMBER_PHRASE.finditer(_squash(flag.get("evidence", "")))][:2]
-    return tokens
+    plain = flag.get("display_title") or ""
+    if plain and plain != flag.get("title"):
+        squashed = _squash(plain)
+        tokens += [m.group(0) for m in NUMBER_PHRASE.finditer(squashed)]
+        tokens += [m.group(0) for m in _DECIMAL.finditer(squashed)]
+        tokens += [t for t in re.split(r"[^一-龥]+", plain) if len(t) >= PLAIN_PHRASE_MIN]
+    return list(dict.fromkeys(tokens))
 
 
 def _mentions(body: str, tokens: list[str]) -> bool:
@@ -224,6 +240,11 @@ def rule_red_flag_closure(
             fails.append(f"Top3 漂移:装配产物 {got} vs 重算 {want}(Top3 由机器带出, 不许人工挑)")
 
     for flag in flags:
+        if flag.get("same_theme_missing"):
+            warns.append(
+                f"提名「{flag['title']}」({flag['id']})的 same_theme_as={flag.get('same_theme_as')!r} "
+                "指向的红旗本期不在清单里 —— 改成现在那条的 id, 或删掉这个字段"
+            )
         if flag.get("supersedes_missing"):
             # 更正通道的过期指针: 被更正的那条脚本红旗本期已不触发(数据刷新/规则修正后常见)
             warns.append(
@@ -1136,6 +1157,9 @@ def lint_run(run_dir, md_path=None, artifacts_dir=None, audit_json=None) -> Lint
         return result
 
     bodies = assembly.load_node_bodies(nodes_dir, nodes)
+    # R3(出处按行判)与 R4(数行数)看写手写了什么, 不看排版:SOTP 按「逻辑行」展开 ——
+    # 读者版式把倍数理由拆成第二张表(v8.15.1), 拆表不该让出处失效、也不该凭空多出行数
+    row_bodies = assembly.load_node_bodies(nodes_dir, nodes, table_layout="rows")
     search_dirs = [Path(artifacts_dir)] if artifacts_dir else []
     search_dirs += [run_dir, run_dir.parent.parent]      # runs/{date} → output/{company}
     script_flags = render.load_audit_flags(Path(audit_json) if audit_json else None, search_dirs)
@@ -1157,7 +1181,7 @@ def lint_run(run_dir, md_path=None, artifacts_dir=None, audit_json=None) -> Lint
     decision_fail, decision_warn = rule_decision(nodes, flags)
     result.rules += [
         closure_fail,
-        rule_number_home(bodies),
+        rule_number_home(row_bodies),
         anchor_fail,
         deriv_fail,
         rule_links(bodies),
@@ -1170,7 +1194,7 @@ def lint_run(run_dir, md_path=None, artifacts_dir=None, audit_json=None) -> Lint
         rule_anchor_citation(nodes, bodies),
         rule_realized_multiple(nodes),
         rule_flags_in_sync(script_flags, search_dirs),
-        rule_budget(bodies),
+        rule_budget(row_bodies),
         rule_prose_density(bodies, nodes),
         closure_warn,
         anchor_warn,

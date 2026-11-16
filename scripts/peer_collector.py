@@ -455,7 +455,7 @@ def _format_markdown(
     if industry_stats and industry_stats.get("industry_total_count", 0) >= 5:
         lines.extend([
             "",
-            f"## §4 行业全员估值分布 (v5.1.2,行业 {industry} 共 {industry_stats['industry_total_count']} 家)",
+            f"## §4 行业全员估值分布 (行业 {industry} 共 {industry_stats['industry_total_count']} 家)",
             "",
             "对比维度从 5 家同业扩展到**全行业上市公司**:",
             "",

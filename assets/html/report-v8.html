@@ -35,7 +35,7 @@
 <header class="hero">
   <h1>{{company_name}}</h1>
   <span class="code">{{ticker}}</span>
-  <span class="asof">基准日 {{report_date}} · company-analysis {{skill_version}}</span>
+  <span class="asof">基准日 {{report_date}}</span>
 </header>
 <div class="facts">
 <!-- PLACEHOLDER: hero_facts -->
@@ -53,7 +53,7 @@
 
 <!-- PLACEHOLDER: panel -->
 
-<div class="secl"><span class="t">Top 3 风险</span> <span class="chip">机器带出 · 附录D</span></div>
+<div class="secl"><span class="t">Top 3 风险</span> <a class="chip" href="#appx-D">全部风险见附录D</a></div>
 <div class="risks">
 <!-- PLACEHOLDER: top3 -->
 </div>
@@ -78,10 +78,10 @@
 </div>
 <!-- PLACEHOLDER: appendices -->
 
+<!-- 生成工具: company-analysis {{skill_version}}(版本号只留在注释里: 读者可见文字不出现流水线版本号) -->
 <footer>
-  本报告由 Claude Code company-analysis skill {{skill_version}} 生成 · 判断链五节点 + 红旗两源制装配<br>
-  数据源：Tushare Pro / yfinance / 巨潮资讯 PDF / WebSearch · 不构成投资建议<br>
-  <a href="https://github.com/leafpaper/Ashare-researchreport">skill 代码</a> · <a href="https://github.com/leafpaper/Inves-Report">报告归档</a>
+  本报告由「A股研报」自动生成 · 数据源：Tushare Pro / yfinance / 巨潮资讯 PDF / 网络检索 · 不构成投资建议<br>
+  <a href="https://github.com/leafpaper/Ashare-researchreport">生成工具源码</a> · <a href="https://github.com/leafpaper/Inves-Report">报告归档</a>
 </footer>
 
 </div>

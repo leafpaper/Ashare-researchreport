@@ -277,7 +277,7 @@ def _render_section_2(bundle_dir: Path, latest_periods: dict, out: StringIO):
     fi = _read_parquet_safe(bundle_dir / "fina_indicator.parquet")
 
     # 2.1 利润表
-    out.write(f"### 2.1 利润表关键科目 (来自 income.parquet 最新行 end_date={latest_periods.get('income','?')})\n\n")
+    out.write(f"### 2.1 利润表关键科目 (截至 {_asof(latest_periods.get('income'))})\n\n")
     if not income.empty:
         latest = _latest_row(income)
         prev = None
@@ -306,7 +306,7 @@ def _render_section_2(bundle_dir: Path, latest_periods: dict, out: StringIO):
     out.write("\n")
 
     # 2.2 资产负债表
-    out.write(f"### 2.2 资产负债表关键科目 (来自 balancesheet.parquet 最新行 end_date={latest_periods.get('balancesheet','?')})\n\n")
+    out.write(f"### 2.2 资产负债表关键科目 (截至 {_asof(latest_periods.get('balancesheet'))})\n\n")
     if not bs.empty:
         latest = _latest_row(bs)
         prev = None
@@ -330,7 +330,7 @@ def _render_section_2(bundle_dir: Path, latest_periods: dict, out: StringIO):
     out.write("\n")
 
     # 2.3 现金流
-    out.write(f"### 2.3 现金流量表 (来自 cashflow.parquet 最新行 end_date={latest_periods.get('cashflow','?')})\n\n")
+    out.write(f"### 2.3 现金流量表 (截至 {_asof(latest_periods.get('cashflow'))})\n\n")
     if not cf.empty:
         latest = _latest_row(cf)
         prev = None
@@ -353,7 +353,7 @@ def _render_section_2(bundle_dir: Path, latest_periods: dict, out: StringIO):
     out.write("\n")
 
     # 2.4 fina_indicator
-    out.write(f"### 2.4 财务指标 (来自 fina_indicator.parquet 最新行 end_date={latest_periods.get('fina_indicator','?')})\n\n")
+    out.write(f"### 2.4 财务指标 (截至 {_asof(latest_periods.get('fina_indicator'))})\n\n")
     if not fi.empty:
         latest = _latest_row(fi)
         out.write("| 指标 | 数值 |\n|---|---:|\n")
@@ -433,9 +433,17 @@ def _render_section_3(bundle_dir: Path, out: StringIO):
     out.write(f"\n*共 {len(periods)} 期, 最新期 {periods[0]};ROE 列取自 `fina_indicator.{roe_col}`(非加权, 与附录B 自动同业表同口径);年报惯用的加权平均 ROE 见 §2.4。*\n\n")
 
 
+def _asof(end_date) -> str:
+    """'20260630' → '2026-06-30'。附录A 标题给读者看期别;旧写法「来自 income.parquet 最新行 end_date=…」
+    是数据表名 + 字段名(v8.15.1 起不再印)。"""
+    s = str(end_date or "").strip()
+    return f"{s[:4]}-{s[4:6]}-{s[6:8]}" if len(s) == 8 and s.isdigit() else (s or "?")
+
+
 def _render_section_4(bundle_dir: Path, out: StringIO):
     """§4 业绩预告 vs 实际兑现对比"""
-    out.write("## §4 业绩预告 vs 实际兑现对比 (★ 若 actual 已存在, 主报告必须用 actual, 禁止用预告口径)\n\n")
+    # 写手须知(已有实际值就用实际值, 不用预告口径)归 phases 手册, 不印进读者看得到的附录标题(v8.15.1)
+    out.write("## §4 业绩预告 vs 实际兑现对比\n\n")
 
     forecast = _read_parquet_safe(bundle_dir / "forecast_vip.parquet")
     income = _read_parquet_safe(bundle_dir / "income.parquet")
@@ -457,7 +465,7 @@ def _render_section_4(bundle_dir: Path, out: StringIO):
     else:
         income_idx = pd.DataFrame()
 
-    out.write("| 公告日 | 报告期 | 类型 | 预告净利区间(万) | **实际归母净利(★ income)** | 兑现状态 |\n")
+    out.write("| 公告日 | 报告期 | 类型 | 预告净利区间(万) | **实际归母净利** | 兑现状态 |\n")
     out.write("|:---:|:---:|:---:|---:|---:|:---:|\n")
 
     for _, row in forecast.iterrows():
@@ -601,7 +609,7 @@ def _render_section_7(bundle_dir: Path, out: StringIO):
             status,
         ]
         out.write(_md_table_row(cells))
-    out.write("\n*质押明细(active 记录)。大股东累计质押率是红旗审计与④路径左尾清单的取数处。*\n\n")
+    out.write("\n*质押明细(仍在质押中的记录)。大股东累计质押率是红旗清单与④路径最坏情形的取数处。*\n\n")
 
 
 def _render_section_8(bundle_dir: Path, out: StringIO):
@@ -629,12 +637,12 @@ def _render_section_8(bundle_dir: Path, out: StringIO):
         else:
             chg = "–"
         out.write(f"| {ed} | {n:,.0f} | {chg} |\n" if pd.notna(n) else f"| {ed} | – | {chg} |\n")
-    out.write("\n*★ 户数变化是主力吸筹/出货的核心信号: 户数↓ + 户均↑ = 机构吸筹; 户数↑ + 户均↓ = 机构退出 (capital_flow.md §3 已自动判定)。*\n\n")
+    out.write("\n*户数变化是主力吸筹/出货的核心信号: 户数↓ + 户均↑ = 机构吸筹; 户数↑ + 户均↓ = 机构退出(附录C 资金底稿有逐期判定)。*\n\n")
 
 
 def _render_section_9(bundle_dir: Path, out: StringIO):
-    """§9 v5.1.2 新增: 限售股解禁日历 (未来 12 个月)"""
-    out.write("## §9 限售股解禁日历 (未来 12 个月) ★ v5.1.2 新增\n\n")
+    """§9 限售股解禁日历 (未来 12 个月)。标题不带版本号(读者看得到, v8.15.1)。"""
+    out.write("## §9 限售股解禁日历 (未来 12 个月)\n\n")
     df = _read_parquet_safe(bundle_dir / "share_float.parquet")
     if df.empty:
         out.write("(无解禁数据,可能是该公司近 12 月无解禁,或 Tushare 接口未返回)\n\n")
@@ -792,7 +800,7 @@ def main():
     if missing:
         print(f"   ⚠️  缺失章节: {missing}")
         return 2
-    print(f"   ✅ 9 个核心章节齐全 (v5.1.2 新增 §9 限售解禁)")
+    print(f"   ✅ 9 个核心章节齐全 (含 §9 限售解禁)")
     return 0
 
 

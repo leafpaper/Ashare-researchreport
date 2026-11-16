@@ -58,6 +58,20 @@ from . import red_flags as rf
 from .update_index import GEAR_TONE
 
 ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets" / "html"
+SKILL_MD = Path(__file__).resolve().parents[1] / "SKILL.md"
+
+
+def skill_version() -> str:
+    """成品 HTML 注释里的生成工具版本 = SKILL.md 的 metadata.version(唯一出处)。
+
+    旧默认值写死「v8.0」, 而且印在首屏「company-analysis v8.0」—— 既不是真版本, 也是流水线标签
+    (立讯 11-13 终检)。现在版本号只进 HTML 注释, 读者可见文字里不出现。
+    """
+    try:
+        m = re.search(r'^\s*version:\s*"?([\w.]+)"?\s*$', SKILL_MD.read_text(encoding="utf-8"), re.M)
+    except OSError:
+        m = None
+    return f"v{m.group(1)}" if m else "v8"
 
 
 # ---------- 注释块解析 ----------
@@ -602,6 +616,12 @@ def _pct_text(value: float, digits: int = 1) -> str:
     return f"{text or '0'}%"
 
 
+PFN_KIND_PLAIN = {
+    "embedded_obligation": "公司必须做到的任务,不是白送的机会",
+    "free_option": "白送的机会,不是必须做到的任务",
+}
+
+
 def render_pfn_bar(nodes: dict | None) -> str:
     """股价拆两半的占比尺(契约里叫 P=F+N):一根条拆两段 —— 已赚到的 / 还没挣到的那部分。
 
@@ -622,8 +642,10 @@ def render_pfn_bar(nodes: dict | None) -> str:
     n_share = pfn.get("narrative_share")
     n_pct = float(n_share) * 100 if isinstance(n_share, (int, float)) else narr / cap * 100
     f_pct = 100 - n_pct
-    kind = "市场已收费的义务,不是白送的彩票" if pfn.get("kind") == "embedded_obligation" \
-        else "白送的可选项(free option)"
+    # 图例与③正文同一种说法(人话词典 §4.1「free option vs embedded obligation」那一行):
+    # 旧图例写「市场已收费的义务,不是白送的彩票」, 正文写「公司必须做到的任务,不是白送的机会」,
+    # 同一件事两种说法(立讯 11-13 终检);另一档还挂着英文「free option」
+    kind = PFN_KIND_PLAIN.get(pfn.get("kind"), PFN_KIND_PLAIN["free_option"])
     f_txt = f"{derivation._fmt(fact, unit)} · {_pct_text(f_pct)}"
     n_txt = f"{derivation._fmt(narr, unit)} · {_pct_text(n_pct)}"
     alt = (f"股价拆两半:市值 {derivation._fmt(cap, unit)} 里, 已赚到的 {f_txt},"
@@ -690,7 +712,7 @@ def render_left_tail_ladder(nodes: dict | None) -> str:
     单一色相 —— 全部台阶都在零的同一侧(都是跌幅), 长度已经编码了量级, 再按深浅调色
     就是把同一件事编码两遍(dataviz anti-patterns「彩虹条形图」)。色相取自调色板的
     发散对(蓝↔红)的红臂, 因为整张图只落在红臂上。
-    量不到价格的情景不静默丢:图下一行明说还有几条、分别是什么量级(票 11 契约里的 magnitude)。
+    量不到价格的情景不静默丢:图下一行明说「另有、见正文」(量级在正文清单里, 票 11 契约的 magnitude)。
     """
     tails = ((nodes or {}).get("path") or {}).get("left_tail") or []
     graded = [t for t in tails if isinstance(t.get("depth_pct"), (int, float))]
@@ -714,16 +736,19 @@ def render_left_tail_ladder(nodes: dict | None) -> str:
     ungraded = [t for t in tails if not isinstance(t.get("depth_pct"), (int, float))]
     foot = ""
     if ungraded:
-        # 图脚只报「还有几条、去哪看」—— 把每条的名字与量级都摊在这里, 就是在图下面
+        # 图脚只报「还有、去哪看」—— 把每条的名字与量级都摊在这里, 就是在图下面
         # 重建一堵墙(实测 380 字, 在 390px 上把本章判定推下一屏)。内容本来就在本章正文里。
-        foot = (f'  <p class="foot">另有 {len(ungraded)} 条左尾量不到价格'
-                f"(只判得出量级),逐条见本章正文的左尾清单。</p>")
-    alt = "左尾深度阶梯:" + "、".join(          # 朗读用全名, 截断只是版面上的事
+        # **不写条数**:条数取自 YAML(depth_pct 为 null 的条目), 正文那张表是写手排的、可以并行 ——
+        # 立讯 11-13 YAML 8 条、正文表 7 行(AI 线与 ITC 337 并成一行), 图脚写「另有 8 条」就和表对不上。
+        # 图上也不说「左尾」(内部词), 与正文同叫「最坏情形」(立讯 11-13 终检)。
+        foot = ('  <p class="foot">另有量不到股价的最坏情形(只判得出量级),'
+                "逐条见本章正文。</p>")
+    alt = "最坏情形阶梯:" + "、".join(          # 朗读用全名, 截断只是版面上的事
         f"{_ladder_head(t['scenario'])} −{_pct_text(abs(float(t['depth_pct'])))}" for t in graded
     )
     return "\n".join(filter(None, [
         f'<figure class="ladder" role="img" aria-label="{_esc(alt)}">',
-        "  <figcaption>左尾有多深:兑现之前最坏要扛多少</figcaption>",
+        "  <figcaption>最坏情形有多深:兑现之前最多要扛多少跌幅</figcaption>",
         '  <ol class="rungs">', *rungs, "  </ol>",
         foot,
         "</figure>",
@@ -914,6 +939,18 @@ def render_verdict_tiles(product: dict) -> str:
     return "\n".join(tiles)
 
 
+def peer_note(value: str) -> str:
+    """面板说明行的同业位置。写手的 peer_percentile 多半自带「分位」(「20% 分位」「0% 分位(…)」),
+    再拼一个「同业分位」前缀就成了「同业分位 20% 分位」(立讯 11-13 终检);已带「分位」只补「同业」。"""
+    text = str(value).strip()
+    if text.startswith("同业"):
+        return text
+    if "分位" in text:                       # 「20% 分位(六家精密制造同业中倒数第二)」→「同业 20% 分位(…)」
+        return f"同业 {text}"
+    # 「电子特气同业连本公司 5 家:毛利第 4」这种自己说清了「同业」, 不再加前缀
+    return text if "同业" in text else f"同业分位 {text}"
+
+
 def render_panel(product: dict) -> str:
     """赚不赚钱面板 = stat tiles + 红标角标; 结论行引用①质地子判定, 面板不自产结论。"""
     panel = product["panel"]
@@ -925,7 +962,7 @@ def render_panel(product: dict) -> str:
         cls = f' mk-{entry["mark"]}' if entry else ""
         note = _esc(ind["trend"])
         if ind.get("peer_percentile"):
-            note += f' · 同业分位 {_esc(ind["peer_percentile"])}'
+            note += f' · {_esc(peer_note(ind["peer_percentile"]))}'
         if ind.get("note"):
             note += f' <span class="why">（{_esc(ind["note"])}）</span>'
         spark = render_sparkline(ind.get("series"), ind["name"])
@@ -959,11 +996,12 @@ def render_top3(product: dict) -> str:
             "evidence": item["evidence"], "source": item.get("source", "script"),
             "node": item.get("node", "quality"),
         })
-        # 同一「首要关联指标」的多条红旗被装配合并成一条风险 —— 浮层里两源一并列出,
-        # 按级别排序使领衔条目 = 装配选定的代表(red_flag_id), 红标 emoji/颜色/锚点三者一致
+        # 同一「首要关联指标」(或写手声明的同一主题)的多条红旗被装配合并成一条风险 —— 浮层里一并列出,
+        # 领衔条目 = 装配选定的代表(red_flag_id), 红标 emoji/颜色/锚点三者一致;
+        # 同级时代表可能是排在后面的提名(v8.15.1 提名优先), 所以显式把它排第一, 不靠稳定排序碰运气
         group = sorted(
             [by_id[i] for i in item.get("red_flag_ids", []) if i in by_id] or [lead],
-            key=lambda f: rf.LEVEL_ORDER[f["level"]],
+            key=lambda f: (rf.LEVEL_ORDER[f["level"]], f["id"] != lead["id"]),
         )
         entry = {
             "mark": rf.MARK_BY_LEVEL.get(item["level"]) or "yellow",
@@ -1013,9 +1051,8 @@ def render_change_block(product: dict) -> str:
     cb = product.get("change_block")
     if not cb:
         return "<!-- 全量 run: 无较上版变化区块 -->"
-    tb, ta = cb["triad_before"], cb["triad_after"]
     rows = [("行动档位", assembly.gear_plain(cb["gear_before"]), assembly.gear_plain(cb["gear_after"]))]
-    rows += [(label, tb[k], ta[k]) for k, label in arv8.CHANGE_TRIAD_ROWS]
+    rows += arv8.change_triad_rows(cb)
     notes = []
     for d in cb["metric_deltas"]:
         rows.append((d["name"], arv8.change_cell(d["before"], d.get("before_label")),
@@ -1042,24 +1079,26 @@ def render_change_block(product: dict) -> str:
     bullets = [f'<li><b>判定变化</b>:{_esc(";".join(flip_bits) or "无")}</li>']
     for label, text in arv8.falsification_lines(cb):
         bullets.append(f'<li><b>{_esc(label)}</b>:{_esc(text)}</li>')
-    # 红旗变化: 🟢/ℹ️ 是绿灯与信息更新, 不许借「红旗」名头吓人; 长清单收进折叠组
-    # (分组口径 = assembly.flag_change_is_soft, 与首句的计数同源)
-    flag_items, green_items = [], []
+    # 红旗变化: 🟢 是绿灯、ℹ️ 是信息更新, 不许借「红旗」名头吓人, 两者也不混叫(立讯 11-13 终检:
+    # ℹ️ 北向减持被标成「绿灯更新」); 长清单收进折叠组(分组口径 = assembly.flag_change_is_soft, 与首句同源)
+    flag_items, soft_items = [], []
+    soft_counts = {"绿灯更新": 0, "信息更新": 0}
     for item in cb["red_flag_changes"]:
         note = item.get("note") or item["id"]
         if assembly.flag_change_is_soft(item):
-            green_items.append(f'<li><b>绿灯更新</b>:{_esc(note)}</li>')
+            label = assembly.soft_flag_label(item)
+            soft_counts[label] += 1
+            soft_items.append(f'<li><b>{label}</b>:{_esc(note)}</li>')
         else:
             flag_items.append(f'<li><b>{_esc(arv8.flag_change_verb(item))}</b>:{_esc(note)}</li>')
-    if flag_items or green_items:
-        counts = []
-        if flag_items:
-            counts.append(f"红旗 {len(flag_items)}")
-        if green_items:
-            counts.append(f"绿灯/信息 {len(green_items)}")
+    if flag_items or soft_items:
+        counts = [f"红旗 {len(flag_items)}"] if flag_items else []
+        counts += [f"{label[:-2]} {n}" for label, n in soft_counts.items() if n]
+        names = (["红旗"] if flag_items else []) + [label[:-2] for label, n in soft_counts.items() if n]
+        title = "、".join(names[:-1]) + "与" + names[-1] if len(names) > 1 else names[0]
         bullets.append(
-            f'<li><details><summary><b>红旗与绿灯变化</b>({" · ".join(counts)},点开逐条)</summary>'
-            f'<ul>{"".join(flag_items + green_items)}</ul></details></li>'
+            f'<li><details><summary><b>{title}变化</b>({" · ".join(counts)},点开逐条)</summary>'
+            f'<ul>{"".join(flag_items + soft_items)}</ul></details></li>'
         )
     else:
         bullets.append("<li><b>红旗清单</b>:无增减</li>")
@@ -1124,15 +1163,36 @@ def render_chapters(parts: dict, product: dict, nodes: dict | None = None) -> st
             figures = render_valuation_meter(nodes) + render_pfn_bar(nodes)
         elif node == "path":
             figures = render_left_tail_ladder(nodes)
+        body = place_figures(prepare_body(body_md, product, fold=True), figures)
         out.append(
             f'<section class="chB" id="ch-{node}">\n'
             f'  <div class="hd"><span class="no">{_esc(name.strip())}</span>'
             f'<span class="qq">{_esc(question.strip())}</span>'
             f'<span class="pill {pill_cls}">{_esc(head_txt)}</span></div>\n'
-            f'  <div class="bd">{figures}{prepare_body(body_md, product, fold=True)}</div>\n'
+            f'  <div class="bd">{body}</div>\n'
             f"</section>"
         )
     return "\n".join(out)
+
+
+_FIRST_FOLD = '<details class="drill">'
+_TABLE_END = "</table></div>"
+
+
+def place_figures(body_html: str, figures: str) -> str:
+    """章头图放在**判定句与子判定表之后**、第一个折叠段之前。
+
+    原来图排在正文最前, ③④打开先是两三张图, 判定句被挤到图下(390px 上要滑一屏才看到结论;
+    立讯 11-13 终检)。结论先行:判定 → 子判定表 → 图 → 折叠的推导。
+    没有折叠段时退到第一张表之后;连表都没有就放末尾 —— 判定句永远在图前面。
+    """
+    if not figures:
+        return body_html
+    cut = body_html.find(_FIRST_FOLD)
+    if cut < 0:
+        end = body_html.find(_TABLE_END)
+        cut = end + len(_TABLE_END) if end >= 0 else len(body_html)
+    return body_html[:cut] + figures + body_html[cut:]
 
 
 def render_appendix_nav(parts: dict) -> str:
@@ -1168,9 +1228,10 @@ def build_html_v8(
     product: dict,
     nodes: dict[str, dict] | None = None,
     ticker: str = "",
-    version: str = "v8.0",
+    version: str | None = None,
 ) -> str:
-    """装配产物(assembly.json)+ 主报告 md → B 仪表盘成品 HTML。"""
+    """装配产物(assembly.json)+ 主报告 md → B 仪表盘成品 HTML。版本号只进 HTML 注释(缺省读 SKILL.md)。"""
+    version = version or skill_version()
     md_text = Path(md_path).read_text(encoding="utf-8")
     parts = split_v8_sections(md_text)
     meta = product["metadata"]
@@ -1495,7 +1556,7 @@ def main():
     ap.add_argument("--md", help="MD 路径 (默认自动找最新)")
     ap.add_argument("--out", help="输出 HTML 路径 (默认同目录同名 .html)")
     ap.add_argument("--ticker", default="", help="ticker(默认从 MD title / CARD_METADATA 抽)")
-    ap.add_argument("--version", default="", help="skill 版本号(默认 v8 报告 v8.0 / v7 报告 v6.0)")
+    ap.add_argument("--version", default="", help="生成工具版本号, 只进 HTML 注释(默认 v8 报告读 SKILL.md / v7 报告 v6.0)")
     ap.add_argument("--skip-lint", action="store_true", help="跳过 v8 lint 门控(不推荐, 仅 debug 用)")
     args = ap.parse_args()
 
@@ -1569,7 +1630,7 @@ def main():
         try:
             html = build_html_v8(
                 md_path, product, nodes=nodes,
-                ticker=args.ticker, version=args.version or "v8.0",
+                ticker=args.ticker, version=args.version or skill_version(),
             )
         except Exception as e:
             print(f"❌ 构建失败: {e}", file=sys.stderr)

@@ -534,7 +534,9 @@ def _format_markdown(target_code: str, raw: dict, m: dict) -> str:
         "",
         f"**生成日期**: {dt.date.today().isoformat()}",
         f"**数据窗口**: 近 60 日 (两融/陆股通/主力资金) / 近 30 日 (龙虎榜)",
-        "**v4.5 口径说明**: 控盘指标用 **top10_holders(含限售)** 作为主口径, 旧版 top10_float(仅流通) 的 22.61% 等数字降为补充(对限售比例高的公司会严重低估真实控盘)。",
+        # 旧版这句写着英文表名、版本号和一个写死的「22.61%」(不是本公司的数, 每份报告一模一样;v8.15.1)
+        "**口径说明**: 控盘指标以全体前十大股东(含限售股)合计持股为主口径, 只看流通股的前十大降为补充"
+        "(限售比例高的公司只看流通股会严重低估真实控盘)。",
         "",
         "## §1 控盘综合判定 (Top 一眼可见)",
         "",
@@ -556,7 +558,7 @@ def _format_markdown(target_code: str, raw: dict, m: dict) -> str:
     # 一键汇总 7 维度(v4.5 新增家族控盘)
     dims = [
         ("主力控盘度 (总股本口径)", m.get("control_level"), f"{top10_source}合计 **{top10_pct}%**"),
-        ("★ 实控人家族合计持股", fam_line, fam_detail),
+        ("实控人家族合计持股", fam_line, fam_detail),
         ("筹码集中度 (流通股动态)", m.get("chip_concentration"), f"户数变化 {m.get('holder_num_change', 'N/A')}%"),
         ("陆股通(北向)", m.get("hsgt_direction"), f"持仓 {m.get('hsgt_ratio_latest', 'N/A')}% / 20 日变化 {m.get('hsgt_ratio_change_20d', 'N/A')}pp"),
         ("两融杠杆", m.get("margin_signal"), f"融资余额 {m.get('margin_rzye_latest_wan', 'N/A')} 万元, 相对近 60 日中位 {m.get('margin_vs_median', 'N/A')}%"),
@@ -765,7 +767,7 @@ def _format_markdown(target_code: str, raw: dict, m: dict) -> str:
     # §9 北向资金加权建仓成本 (v5.1.2 新增,合并入北向资金视角)
     lines.extend([
         "",
-        "## §9 北向资金加权建仓成本 (v5.1.2 新增)",
+        "## §9 北向资金加权建仓成本",
         "",
     ])
     if "hsgt_avg_cost" in m:
@@ -856,7 +858,7 @@ def _format_markdown(target_code: str, raw: dict, m: dict) -> str:
         "",
         "---",
         "",
-        f"*由 `scripts/capital_flow.py` 自动生成 (v5.1.2: 10 段)*",
+        "*由 `scripts/capital_flow.py` 自动生成*",
         f"*数据源: Tushare (moneyflow / hk_hold / margin_detail / top_list / top_inst / block_trade / top10_floatholders / stk_holdernumber + daily_basic)*",
         f"*挂载为报告附录C 舆情与资金底稿。判断链里④路径用它判拥挤度与波动放大、②状态用它判注意力先行——资金面属传闻一侧证据,不作基本面改善的实锤*",
     ])

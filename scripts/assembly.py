@@ -116,13 +116,15 @@ def load_baseline_nodes(nodes_dir) -> dict[str, dict]:
     return _load_blocks(nodes_dir, lambda _node: "change-baseline", "上版节点块缺「较上版变化」要用的字段")
 
 
-def load_node_bodies(nodes_dir, nodes: dict[str, dict] | None = None) -> dict[str, str]:
+def load_node_bodies(nodes_dir, nodes: dict[str, dict] | None = None,
+                     table_layout: str = "reader") -> dict[str, str]:
     """读五个节点 md 的正文(剥掉顶部 YAML 块与写手自带的章节标题行)。
 
     给了 `nodes`(已过 schema 的五块)就顺手把③赔率正文里的
     `{{sotp}}` / `{{discount_rate}}` / `{{dcf}}` 占位换成机器渲染的表(票 11)——
     **装配与 lint 必须传同一个 nodes**, 否则 R10「报告与节点同步」会拿展开前的正文
     去比展开后的报告, 每次都判不同步。
+    `table_layout="rows"` 只给 lint 的 R3 / R4 用(SOTP 按逻辑行展开, 见 derivation.render_sotp_rows)。
     """
     nodes_dir = Path(nodes_dir)
     bodies = {}
@@ -132,7 +134,7 @@ def load_node_bodies(nodes_dir, nodes: dict[str, dict] | None = None) -> dict[st
             continue
         body = strip_yaml_block(path.read_text(encoding="utf-8"), node)
         if node == "odds" and nodes:
-            body = derivation.expand_tables(body, nodes.get("odds") or {})
+            body = derivation.expand_tables(body, nodes.get("odds") or {}, layout=table_layout)
         bodies[node] = body
     return bodies
 
@@ -308,6 +310,90 @@ def flag_change_is_soft(item: dict) -> bool:
     return any(lv in (item.get("note") or "") for lv in SOFT_FLAG_LEVELS)
 
 
+def soft_flag_label(item: dict) -> str:
+    """🟢 = 绿灯更新, ℹ️ = 信息更新 —— 两种分开叫(立讯 11-13 终检:北向减持 ℹ️ 被标成「绿灯更新」)。"""
+    level = item.get("level") or ("🟢" if "🟢" in (item.get("note") or "") else "ℹ️")
+    return "绿灯更新" if level == "🟢" else "信息更新"
+
+
+# ---------------------------------------------------------------- 较上版变化: 读者面短说法
+
+# 判定句的「取值域」段 = 第一个不在括号里的破折号 / 逗号 / 分号之前(与 build_html 决断卡分行同一口径)
+_VERDICT_HEAD_STOPS = "—,，;；"
+_HEAD_PAREN_OPEN, _HEAD_PAREN_CLOSE = "(（【[", ")）】]"
+
+# 取值域里的内部词 → 人话(链手册 §4.1「② 在变好吗的四档」那一行)。
+# 「仅注意力」是手册里的分级名(好消息只引来关注、还没有实锤), 读者面不出现;按长串优先替换。
+VERDICT_HEAD_PLAIN = (
+    ("变好但仅注意力·未确认", "在变好,但还没实锤"),
+    ("变好但仅注意力", "在变好,但还没实锤"),
+    ("变好但未确认", "在变好,但还没实锤"),
+    ("变好+证据确认", "在变好,有实锤"),
+    ("↑未确认", "↑在变好,但还没实锤"),
+    ("↑确认", "↑在变好,有实锤"),
+)
+# 括注里带这些内部词就整段不要(「高尾险·扛不住(高信仰 5/5)」→「高尾险·扛不住」)
+_HEAD_INTERNAL = re.compile(r"[(（][^()（）]*(?:高信仰|信仰体检|注意力|λ|三元组)[^()（）]*[)）]")
+# 取值域后面跟的长括注是理由不是取值(东山 08-24:「高尾险·不可承受(上版 9 条证伪 0 触发,但地板只兜现价 3.7%,…)」);
+# 短括注是取值的一部分(「便宜(有余地)」), 留着
+_HEAD_LONG_ASIDE = re.compile(r"\s*[(（][^()（）]{9,}[)）]")
+
+
+def verdict_head(text: str) -> str:
+    """判定句 → 取值域那一段(破折号/逗号/分号之前;括号里的分隔符不算)。"""
+    text = str(text or "").strip()
+    depth = 0
+    for i, ch in enumerate(text):
+        if ch in _HEAD_PAREN_OPEN:
+            depth += 1
+        elif ch in _HEAD_PAREN_CLOSE:
+            depth = max(depth - 1, 0)
+        elif depth == 0 and ch in _VERDICT_HEAD_STOPS:
+            return text[:i].strip() or text
+    return text
+
+
+def plain_verdict_head(text: str) -> str:
+    """较上版变化的上版/本版两列:只放取值域段, 并按人话词典换掉内部词 —— 两列同一处理, 口径对称。
+
+    上版 YAML 的判定原文整句贴进来, 会带出「高信仰体检 6/7」「仅注意力」这类手册词(立讯 11-13 终检);
+    整句的理由本来就在本版的决断卡与各章里, 这张表只回答「从哪一档变到哪一档」。
+    """
+    head = _HEAD_LONG_ASIDE.sub("", _HEAD_INTERNAL.sub("", verdict_head(text))).strip()
+    for old, new in VERDICT_HEAD_PLAIN:
+        if old in head:
+            return head.replace(old, new)
+    return head
+
+
+# 证伪条件的短名:首句只列「哪几条」, 全文在下面的逐条清单里
+_FALS_PERIOD_LEAD = re.compile(r"^\s*([^:：]{1,14})[:：]\s*")
+_FALS_PERIOD_HINT = re.compile(r"\d|年报|季报|中报|年末|半年|全年")
+# 括注 / 逗号 / 分号 / 句号处收刀;夹在两个数字之间的逗号是千分位(「1,000 亿」), 不算
+_FALS_STOP = re.compile(r"[(（，;；。]|(?<!\d),|,(?!\d)")
+FALS_SHORT_MAX = 26
+
+
+def falsification_short(condition: str) -> str:
+    """证伪条件 → 短名:去掉开头的期别前缀(「2026 年报:」), 截到第一个括注或逗号之前。
+
+    立讯 11-13 首句把整条「2026 年报:全年经营现金流净额 <100 亿(FY2025 为 173.25 亿), 或三季报…」
+    原样塞进去(终检判为表述 FIX)。短名只给首句用, 逐条清单照旧列全文。
+    """
+    text = str(condition or "").strip()
+    m = _FALS_PERIOD_LEAD.match(text)
+    if m and _FALS_PERIOD_HINT.search(m.group(1)) and len(text) > m.end():
+        text = text[m.end():]
+    stop = next((m for m in _FALS_STOP.finditer(text) if m.start() > 0), None)
+    if stop:
+        text = text[:stop.start()]
+    text = text.strip()
+    if len(text) > FALS_SHORT_MAX:
+        spaces = [i for i, ch in enumerate(text[:FALS_SHORT_MAX]) if ch == " "]
+        text = (text[:spaces[-1]] if spaces and spaces[-1] > 6 else text[:FALS_SHORT_MAX]).rstrip() + "…"
+    return text
+
+
 # 提名红旗 id 尾巴上的期别后缀(-2026h1 / -2026q3 / -fy2025 / -20261110): 写手给**延续性**风险换期别时
 # 只换这一截(立讯 11-13: state-growth-quality-2026h1 → state-growth-quality-2026q3)。去掉后相同 = 同一风险族。
 _PERIOD_SUFFIX = re.compile(
@@ -481,7 +567,7 @@ def build_change_block(
 
     return {
         "alpha_summary": _alpha_summary(
-            gear_before, gear_after, flip_kinds, flag_changes, fals_changes, nodes, tally
+            gear_before, gear_after, flip_kinds, flag_changes, fals_changes, nodes, tally, prev_nodes
         ),
         "gear_before": gear_before,
         "gear_after": gear_after,
@@ -498,46 +584,52 @@ def build_change_block(
 
 
 def _alpha_summary(gear_before, gear_after, flip_kinds, flag_changes, fals_changes, nodes,
-                   tally: dict | None = None) -> str:
-    """首句人话答「判断变了没」——只陈述机器测得的变化, 不自产解释。
+                   tally: dict | None = None, prev_nodes: dict | None = None) -> str:
+    """首句人话答「判断变了没」——只陈述机器测得的变化, 不自产解释, **只写要点**。
 
     (字段名 alpha_summary 是契约名, 读者看不到; 首句不出现「阿尔法 / 三元组 / 节点」这类流水线词, v8.15 D3)
+    顺序 = 读者最先要知道的:档位 → 哪章判定从哪档到哪档 → 本轮新亮了哪几条证伪(短名) → 红旗增减计数。
+    立讯 11-13 终检:旧首句把整条证伪原文塞进来(一条就 70 字), 判定翻转只说「②状态判定翻转」不说翻到哪;
+    现在证伪只列短名(falsification_short), 判定写取值域两端(plain_verdict_head), 全文都在下面的逐条清单里。
     措辞纪律: 「翻转」只留给判定语真变的章; 判定语未变、子判定符变的说「子判定变化」;
-    🟢/ℹ️ 不借「红旗」名头(文案与折叠组计数同源, 见 flag_change_is_soft);
+    🟢 叫绿灯、ℹ️ 叫信息更新, 都不借「红旗」名头(文案与折叠组计数同源, 见 flag_change_is_soft);
     证伪分「本轮新触发」与「累计」, 上版已触发的不算本轮新增(与④口径一致)。
     """
     tally = tally or _falsification_tally(nodes.get("path"), fals_changes)
     triggered = [c for c in fals_changes if c["change"] == "triggered"]
     hard = [c for c in flag_changes if not flag_change_is_soft(c)]
     soft = [c for c in flag_changes if flag_change_is_soft(c)]
-    new_flags = [c for c in hard if c["change"] == "triggered"]
-    resolved = [c for c in hard if c["change"] == "resolved"]
-    replaced = [c for c in hard if c["change"] == "replaced"]
-    level_changed = [c for c in hard if c["change"] == "level_changed"]
-    verdict_flips = [n for n, k in flip_kinds.items() if k == "verdict"]
-    sub_flips = [n for n, k in flip_kinds.items() if k == "sub"]
+    verdict_flips = [n for n in rf.NODES if flip_kinds.get(n) == "verdict"]
+    sub_flips = [n for n in rf.NODES if flip_kinds.get(n) == "sub"]
     parts = []
-    if triggered:
-        parts.append(
-            f"证伪本轮新触发 {len(triggered)} 条、累计已触发 {tally['triggered_total']} 条"
-            f"(新触发:{triggered[0]['condition']})"
-        )
-    if verdict_flips:
-        parts.append("、".join(NODE_LABELS[n] for n in rf.NODES if n in verdict_flips) + "判定翻转")
-    if sub_flips:
-        parts.append("、".join(NODE_LABELS[n] for n in rf.NODES if n in sub_flips) + "子判定变化(判定语未变)")
     if gear_before != gear_after:
         parts.append(f"行动档位 {gear_plain(gear_before)}→{gear_plain(gear_after)}")
-    if new_flags:
-        parts.append(f"新增红旗 {len(new_flags)} 条")
-    if resolved:
-        parts.append(f"解除红旗 {len(resolved)} 条")
-    if replaced:
-        parts.append(f"延续上版的红旗 {len(replaced)} 条(换了新说法)")
-    if level_changed:
-        parts.append(f"红旗级别变化 {len(level_changed)} 条")
-    if soft:
-        parts.append(f"绿灯/信息更新 {len(soft)} 条")
+    for n in verdict_flips:
+        if prev_nodes and prev_nodes.get(n):
+            parts.append(f"{NODE_LABELS[n]} {plain_verdict_head(prev_nodes[n].get('verdict'))}"
+                         f"→{plain_verdict_head(nodes[n].get('verdict'))}")
+        else:
+            parts.append(f"{NODE_LABELS[n]}判定翻转")
+    if sub_flips:
+        parts.append("、".join(NODE_LABELS[n] for n in sub_flips) + "子判定变化(判定语未变)")
+    if triggered:
+        names = "、".join(falsification_short(c["condition"]) for c in triggered)
+        text = f"证伪本轮新触发 {len(triggered)} 条({names})"
+        if tally["triggered_total"] > len(triggered):
+            text += f",累计已触发 {tally['triggered_total']} 条"
+        parts.append(text)
+    flag_bits = [
+        (label, sum(1 for c in hard if c["change"] == kind))
+        for kind, label in (("triggered", "新增"), ("resolved", "解除"),
+                            ("replaced", "延续上版"), ("level_changed", "级别变化"))
+    ]
+    if any(n for _, n in flag_bits):
+        parts.append("红旗" + "、".join(f"{label} {n} 条" for label, n in flag_bits if n))
+    greens = sum(1 for c in soft if soft_flag_label(c) == "绿灯更新")
+    if greens:
+        parts.append(f"绿灯 {greens} 条")
+    if len(soft) - greens:
+        parts.append(f"信息更新 {len(soft) - greens} 条")
     if not parts:
         carried = (f",上版已触发的 {tally['triggered_total']} 条证伪仍未解除"
                    if tally["triggered_total"] else "")

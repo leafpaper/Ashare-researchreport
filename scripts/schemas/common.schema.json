@@ -27,6 +27,17 @@
           "type": "boolean",
           "description": "装配写入(写手别填):supersedes 指向的脚本红旗本期没有触发(过期指针)"
         },
+        "same_theme_as": {
+          "description": "只用于写手提名:本条与哪条红旗(脚本或提名的 id)讲的是同一件事。两条所在的组合并成一个主题,首页 Top3 只出一张卡(排名取主题里最强那组本来的排名,不加分),附录D 照列全部",
+          "oneOf": [
+            { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" },
+            { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" } }
+          ]
+        },
+        "same_theme_missing": {
+          "type": "boolean",
+          "description": "装配写入(写手别填):same_theme_as 指向的红旗本期不在清单里(过期指针)"
+        },
         "display_title": {
           "type": "string",
           "description": "脚本红旗的读者向标题(financial_audit plain_title);不进 id"

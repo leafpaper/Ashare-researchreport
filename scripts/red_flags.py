@@ -24,6 +24,19 @@
 错配 🟠」凑条数, 中际旭创/华特的估值条因此常年排第一)。
 🔴 致命红旗不能被更正(封顶规则是硬规则, 判错了就改 audit 规则)。
 
+**同主题声明 same_theme_as(v8.15.1)**: 两条红旗讲的是同一件事、却挂在不同的首要关联指标上
+(立讯 11-13: ③「剔掉不具名联营, 市盈率翻倍」挂 pe_ttm, ①「贡献归母三成的联营一家未具名」挂 non_operating),
+按指标分组会各成一组, 首页 Top3 两张卡讲同一件事, 把真正该上卡的短债风险挤到下面。
+提名可带 `same_theme_as: <红旗 id>`(或 id 列表), 声明「我和那条是同一主题」:两条所在的组合并成一个主题组,
+**Top3 每个主题只出一张卡**(同组其它条目列在卡底, 附录D 照列全部)。合并**只去重、不加分**——
+主题组的排名就是它最强那个成员组本来的排名(级别 → 条数 → 归属节点 → 出现序), 不因为多拉进几条而提级;
+空出来的位置由下一个主题顶上。指向本期不存在的 id 不报错, 记 `same_theme_missing`, lint R2w 提示删掉。
+不靠文本相似度猜「是不是同一件事」—— 只认写手的显式声明, 机器判不准的事不让机器判。
+
+**组代表同级时提名优先(v8.15.1)**: 同组同级的脚本条与提名, 首页卡面显示提名。提名是写手读过原文、
+自己挂进这一组的具体证据(「短期借款破千亿、招股书自认可能无法重续」), 脚本条是综合指标(「Z 值 2.84」);
+读者先要知道出了什么事, 指标留在卡底链接里。组的归属节点随代表走(排序用它)。
+
 **读者向展示**: 脚本红旗的 title 是规则名/公式串(「Z=2.837」), 首页 Top3 卡用 audit 产的人话
 `display_title` + 一句后果 `display_note`(financial_audit 的 plain_title/plain_note)。
 **id 来源不变**(framework + signal 骨架), 已发布报告节点 YAML 里的引用不受影响。
@@ -207,6 +220,15 @@ def is_superseded(flag: dict) -> bool:
     return bool(flag.get("superseded_by"))
 
 
+def theme_targets(flag: dict) -> list[str]:
+    """`same_theme_as` 的目标 id 列表(写手可写一个 id 或一个列表)。"""
+    raw = flag.get("same_theme_as")
+    if not raw:
+        return []
+    items = [raw] if isinstance(raw, str) else list(raw)
+    return [str(t).strip() for t in items if str(t).strip() and str(t).strip() != flag.get("id")]
+
+
 def collect_nominations(node_blocks: dict[str, dict]) -> list[dict]:
     """从四个节点 YAML 块收 red_flag_nominations, 补 source/node 缺省并按节点序稳定排列。"""
     out = []
@@ -269,6 +291,12 @@ def merge(script_flags: list[dict], nominations: list[dict]) -> list[dict]:
                 f"脚本红旗 {target} 被两条提名同时更正({old['superseded_by']} / {flag['id']}),只能留一条"
             )
         merged[index[target]] = dict(old, superseded_by=flag["id"])
+
+    # 同主题声明: 指向本期不存在的 id 只记一笔(lint 提示删), 不报错 —— 和 supersedes 的过期指针同一处理
+    for i, flag in enumerate(merged):
+        targets = theme_targets(flag)
+        if targets and any(t not in index for t in targets):
+            merged[i] = dict(flag, same_theme_missing=True)
     return merged
 
 
@@ -302,7 +330,8 @@ def group_flags(flags: list[dict]) -> list[dict]:
             g["flags"].append(flag)
     out = []
     for g in groups.values():
-        rep = min(g["flags"], key=lambda f: LEVEL_ORDER[f["level"]])
+        # 同级时提名优先当代表(写手挂进这组的具体证据 > 脚本综合指标), 再按清单出现序
+        rep = min(g["flags"], key=lambda f: (LEVEL_ORDER[f["level"]], f.get("source") != "nomination"))
         out.append({
             "key": g["key"],
             "flags": g["flags"],
@@ -313,6 +342,53 @@ def group_flags(flags: list[dict]) -> list[dict]:
             "node": rep["node"],
             "first_index": g["first_index"],
         })
+    return _merge_themes(out, flags)
+
+
+def _merge_themes(groups: list[dict], flags: list[dict]) -> list[dict]:
+    """按 `same_theme_as` 把讲同一件事的组并成主题组(并查集)。
+
+    主题组 = 排名最靠前的那个成员组(级别 → 条数 → 节点 → 出现序)原样顶位, 只是 flags 收齐全部成员:
+    **去重不加分** —— 写手声明「同一件事」是为了少一张重复的卡, 不是为了给这件事凑票。
+    被更正的脚本条不在任何组里, 指向它等于指向更正它的那条提名。
+    """
+    by_id = {f["id"]: f for f in flags}
+    group_of: dict[str, int] = {}
+    for gi, g in enumerate(groups):
+        for f in g["flags"]:
+            group_of[f["id"]] = gi
+    parent = list(range(len(groups)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for g in groups:
+        for f in g["flags"]:
+            for target in theme_targets(f):
+                tf = by_id.get(target)
+                if tf is not None and is_superseded(tf):
+                    target = tf["superseded_by"]
+                if target in group_of:
+                    a, b = find(group_of[f["id"]]), find(group_of[target])
+                    if a != b:
+                        parent[max(a, b)] = min(a, b)
+
+    members: dict[int, list[dict]] = {}
+    for gi, g in enumerate(groups):
+        members.setdefault(find(gi), []).append(g)
+    out = []
+    for root in sorted(members):
+        subgroups = members[root]
+        if len(subgroups) == 1:
+            out.append(subgroups[0])
+            continue
+        best = min(subgroups, key=_group_sort_key)
+        order = {f["id"]: i for i, f in enumerate(flags)}
+        merged_flags = sorted((f for g in subgroups for f in g["flags"]), key=lambda f: order[f["id"]])
+        out.append(dict(best, flags=merged_flags, theme_keys=[g["key"] for g in subgroups]))
     return out
 
 
