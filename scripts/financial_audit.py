@@ -29,6 +29,7 @@ from __future__ import annotations
 import sys
 
 import argparse
+import re
 import json
 import math
 from dataclasses import dataclass, field, asdict
@@ -37,6 +38,11 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+
+try:                                    # 包内导入(python -m scripts.financial_audit / 测试)
+    from .periods import iso as period_iso, period_label
+except ImportError:                     # 直接按文件跑(python scripts/financial_audit.py)
+    from periods import iso as period_iso, period_label  # type: ignore[no-redef]
 
 
 # ============================================================================
@@ -55,6 +61,11 @@ class RedFlag:
     threshold: str          # 阈值描述
     evidence: str           # 证据（涉及的字段/期间）
     implication: str        # 蕴含（投资含义）
+    # 读者向展示(v8.15): signal 是规则名/公式串(「Z=2.837」「F=5/9」), 首页 Top3 卡与红标浮层
+    # 用这两句人话。**不进 id**(id 只由 framework + signal 骨架决定, 见 red_flags.flag_id),
+    # 所以改这里的措辞不会打断已发布报告节点 YAML 里的红旗引用。
+    plain_title: str = ""   # 人话标题(带关键数字与期别, 如「破产风险指标 Z 值 2.84,落在灰色地带」)
+    plain_note: str = ""    # 一句后果(这条信号对读者意味着什么)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -105,6 +116,24 @@ def _latest_row(df: pd.DataFrame, col: str = "end_date") -> pd.Series | None:
     if df is None or df.empty or col not in df.columns:
         return None
     return df.sort_values(col, ascending=False).iloc[0]
+
+
+def _latest_period_row(df: pd.DataFrame) -> pd.Series | None:
+    """最新报告期那一行(含季报/半年报, **年内累计**口径)。
+
+    与 `_invest_income_in_operating_profit` 同一取法(同一 end_date 的重复行取首条)。
+    `_annual()` 只取 1231 行 —— 拿它判「最新期」会把去年年报当成最新(立讯 v8.15 D1)。
+    """
+    if df is None or df.empty or "end_date" not in df.columns:
+        return None
+    d = df.copy()
+    d["end_date"] = d["end_date"].astype(str)
+    return d.drop_duplicates("end_date").sort_values("end_date").iloc[-1]
+
+
+def _period_words(end_date) -> str:
+    """证据里的期别: 「2026 前三季度累计(截至 2026-09-30)」—— 人话 + end_date 两样都在。"""
+    return f"{period_label(end_date)}(截至 {period_iso(end_date)})"
 
 
 # ============================================================================
@@ -211,6 +240,12 @@ def _piotroski(bundle: dict) -> list[RedFlag]:
         threshold="F≤3 警示 / F≥7 优秀",
         evidence=" | ".join(f"{n}={'✓' if o else '✗'}({d})" for n, o, d in details),
         implication=implication,
+        plain_title=f"财务健康九项体检得 {score} 分(满分 9 分)",
+        plain_note=(
+            "九项里过关不到一半,盈利、现金流、负债与效率在同时走弱" if score <= 3 else
+            "九项过了大半,盈利、现金流与负债结构整体健康" if score >= 7 else
+            "过关项目一半上下,单看这一项下不了结论,要看是哪几项没过"
+        ),
     ))
     return flags
 
@@ -291,6 +326,13 @@ def _beneish(bundle: dict) -> list[RedFlag]:
             threshold="M > -1.78 警示",
             evidence=f"DSRI={dsri:.2f}|GMI={gmi:.2f}|AQI={aqi:.2f}|SGI={sgi:.2f}|TATA={tata:.3f}|LVGI={lvgi:.2f}",
             implication=implication,
+            plain_title=(f"利润操纵嫌疑指标 M 值 {m_score:.2f},"
+                         f"{'高于' if m_score > -1.78 else '低于'}警示线 -1.78"),
+            plain_note=(
+                "按应收、毛利、应计等八项算,账面利润有被「做」出来的嫌疑,要逐项核对应收与应计"
+                if m_score > -1.78 else
+                "按应收、毛利、应计等八项算,操纵嫌疑低"
+            ),
         ))
     except (ZeroDivisionError, TypeError):
         pass
@@ -341,12 +383,15 @@ def _altman(bundle: dict) -> list[RedFlag]:
     if z < 1.81:
         sev = "🔴 致命"
         implication = "Z < 1.81，处于破产风险区（Altman 经典阈值）"
+        zone, note = "破产风险区", "低于 1.81:营运资金、留存利润与盈利对负债的缓冲太薄,偿债风险高"
     elif z < 2.99:
         sev = "🟠 高"
         implication = "Z ∈ [1.81, 2.99)，灰色地带，财务健康警示"
+        zone, note = "灰色地带", "介于 1.81 和 2.99 之间:偿债缓冲偏薄,利润或融资一收紧就会吃紧"
     else:
         sev = "🟢 低"
         implication = "Z ≥ 2.99，财务健康度安全"
+        zone, note = "安全区", "高于 2.99:负债有足够的利润与资产缓冲"
     flags.append(RedFlag(
         framework="Altman Z-Score",
         signal=f"Z={z:.3f}",
@@ -355,6 +400,8 @@ def _altman(bundle: dict) -> list[RedFlag]:
         threshold="Z<1.81 破产风险 / Z>2.99 安全",
         evidence=f"营运资本/TA={(tca-tcl)/ta:.3f}|RE/TA={re/ta:.3f}|EBIT/TA={ebit/ta:.3f}|MV/TL={mv/tl:.3f}|S/TA={rev/ta:.3f}",
         implication=implication,
+        plain_title=f"破产风险指标 Z 值 {z:.2f},落在{zone}",
+        plain_note=note,
     ))
     return flags
 
@@ -399,6 +446,8 @@ def _dupont(bundle: dict) -> list[RedFlag]:
                 threshold="仅展示归因",
                 evidence=f"净利率={nm:.3%} × 资产周转={at:.3f} × 权益乘数={lev:.2f}",
                 implication=f"ROE={calc_roe:.2%}；来自净利率 {nm:.2%}、周转 {at:.2f}、杠杆 {lev:.2f}",
+                plain_title=f"{'最近一年' if label == '最新' else '上一年'}净资产回报率 {calc_roe:.1%} 的来源",
+                plain_note=f"净利率 {nm:.2%} × 资产周转 {at:.2f} 次 × 杠杆 {lev:.2f} 倍",
             ))
 
     # ROE 急剧恶化 (≥10pp)
@@ -411,6 +460,8 @@ def _dupont(bundle: dict) -> list[RedFlag]:
             threshold="同比下降 > 10pp",
             evidence=f"ROE {roe_prev:.2f}% → {roe_now:.2f}%",
             implication="盈利能力系统性下滑，需追查杠杆/周转/净利率哪一项崩塌",
+            plain_title=f"净资产回报率一年掉了 {roe_prev - roe_now:.1f} 个百分点",
+            plain_note=f"从 {roe_prev:.2f}% 降到 {roe_now:.2f}%,要查是利润率、周转还是杠杆塌了",
         ))
     return flags
 
@@ -447,6 +498,9 @@ def _buffett_quality(bundle: dict) -> list[RedFlag]:
                 threshold="OCF/NI < 0.8 警示，<0.5 严重",
                 evidence=f"OCF={ocf/1e8:.2f}亿 / NI={ni/1e8:.2f}亿",
                 implication="净利润含水分，可能是应收/存货虚增而非真实现金流入",
+                plain_title=f"经营现金流只有净利润的 {ratio:.0%}",
+                plain_note=f"经营现金流 {ocf/1e8:.2f} 亿对净利润 {ni/1e8:.2f} 亿,利润没有同步变成现金,"
+                           "可能压在应收账款或存货里",
             ))
 
     # 2. 应收增速 vs 营收增速
@@ -464,6 +518,8 @@ def _buffett_quality(bundle: dict) -> list[RedFlag]:
                 threshold="应收增速 - 营收增速 > 20pp",
                 evidence=f"应收增速 {ar_g:.1%} vs 营收增速 {rev_g:.1%}",
                 implication="收入可能通过放宽信用条件获得，未来回款压力大",
+                plain_title=f"应收账款增速比营收快 {(ar_g - rev_g) * 100:.0f} 个百分点",
+                plain_note=f"应收增 {ar_g:.1%}、营收增 {rev_g:.1%},收入可能靠放宽赊账换来,后面回款压力大",
             ))
 
     # 3. 存货增速 vs 营收增速
@@ -480,6 +536,8 @@ def _buffett_quality(bundle: dict) -> list[RedFlag]:
                 threshold="存货增速 - 营收增速 > 30pp",
                 evidence=f"存货增速 {inv_g:.1%} vs 营收增速 {rev_g:.1%}",
                 implication="存货积压，未来可能计提跌价准备",
+                plain_title=f"存货增速比营收快 {(inv_g - rev_g) * 100:.0f} 个百分点",
+                plain_note=f"存货增 {inv_g:.1%}、营收增 {rev_g:.1%},货压在仓库里,后面可能要计提跌价",
             ))
 
     # 4. 商誉/净资产
@@ -496,6 +554,8 @@ def _buffett_quality(bundle: dict) -> list[RedFlag]:
                 threshold="商誉/净资产 > 30% 警示",
                 evidence=f"商誉={goodwill/1e8:.2f}亿 / 净资产={te/1e8:.2f}亿",
                 implication="并购驱动增长，存在商誉减值悬崖风险",
+                plain_title=f"商誉占净资产 {gw_ratio:.0%}",
+                plain_note=f"商誉 {goodwill/1e8:.2f} 亿,增长靠并购堆出来,标的一旦不及预期就要减值",
             ))
 
     # 5. 非经常性损益比例（通过 income 的 total_profit - operate_profit 估算）
@@ -514,6 +574,8 @@ def _buffett_quality(bundle: dict) -> list[RedFlag]:
                     threshold="|非经|/|利润总额| > 30% 警示",
                     evidence=f"非经常性 {non_op/1e8:.3f}亿 / 总利润 {total_profit/1e8:.3f}亿",
                     implication="利润质量低，依赖投资收益/公允价值变动等非主业来源",
+                    plain_title=f"营业外收支占利润总额 {non_op_ratio:.0%}",
+                    plain_note="利润有一大块不是主营赚的,这部分往后未必还有",
                 ))
 
     flags.extend(_invest_income_in_operating_profit(bundle))
@@ -570,6 +632,9 @@ def _invest_income_in_operating_profit(bundle: dict) -> list[RedFlag]:
         evidence=f"{period}: 投资收益类 {invest/1e8:.2f}亿 / 营业利润 {op_profit/1e8:.2f}亿{prev_txt}",
         implication="这块不是主营赚的(理财、处置、联营重估都在里面)，"
                     "ROE / 净利率 / 同行分位会被一次性顶高——判质地要用扣除后的口径",
+        plain_title=f"投资收益与公允价值变动占营业利润 {ratio:.0%}({period_label(period)})",
+        plain_note=f"投资类收益 {invest/1e8:.2f} 亿对营业利润 {op_profit/1e8:.2f} 亿{prev_txt.replace(', ', ',')};"
+                   "这块不是主营赚的(理财、处置、联营收益都在里面),回报率与利润率会被它顶高",
     ))
     return flags
 
@@ -608,6 +673,9 @@ def _sloan(bundle: dict) -> list[RedFlag]:
                 threshold="|NI-OCF|/TA > 10%",
                 evidence=f"应计={accruals/1e8:.3f}亿 / TA={ta/1e8:.2f}亿",
                 implication="正向应计过高暗示未来收益会回归（Sloan 异象）",
+                plain_title=f"账面利润与经营现金流的差额占总资产 {accrual_ratio:+.0%}",
+                plain_note=("账面利润远高于现金流入,这类利润往后容易回落" if accrual_ratio > 0 else
+                            "现金流入远高于账面利润,本身不是坏事,要看是不是预收款或一次性回款"),
             ))
     return flags
 
@@ -635,25 +703,12 @@ def _governance(bundle: dict) -> list[RedFlag]:
                 threshold="持股质押比例 > 50% 警示",
                 evidence=f"涉及 {len(names)} 位股东: {', '.join(names[:3])}",
                 implication="平仓风险 + 融资压力；若股价下跌可能引发被动减持",
+                plain_title=f"{len(names)} 位股东质押超过各自持股的一半",
+                plain_note="股价一旦下跌可能触发平仓,形成被动减持",
             ))
 
-    # 2. 实控人减持 + 业绩下滑同步（假设通过 top10_holders 的 hold_change < 0）
-    th = bundle.get("top10_holders", pd.DataFrame())
-    if not th.empty and "hold_change" in th.columns:
-        latest_period = th["end_date"].max() if "end_date" in th.columns else None
-        if latest_period:
-            recent = th[th["end_date"] == latest_period]
-            total_decrease = recent[recent["hold_change"] < 0]["hold_change"].sum()
-            if abs(total_decrease) > 1_000_000:  # 超过 100 万股
-                flags.append(RedFlag(
-                    framework="Governance",
-                    signal="前十大股东减持",
-                    severity="🟡 中",
-                    value=int(abs(total_decrease)),
-                    threshold="净减持 > 100 万股 关注",
-                    evidence=f"最近一期（{latest_period}）净减持 {abs(total_decrease)/1e4:.0f} 万股",
-                    implication="内部人士减持是最重要的负面信号之一（Lynch）",
-                ))
+    # 2. 前十大股东里的「内部人」净减持(top10_holders 的 hold_change)
+    flags.extend(_top10_insider_selling(bundle))
 
     # 3. 股权激励深度折价（若 stk_rewards 有授予价，与市价对比）
     sr = bundle.get("stk_rewards", pd.DataFrame())
@@ -681,7 +736,108 @@ def _governance(bundle: dict) -> list[RedFlag]:
                     threshold="持股量/年薪 > 100 利好 / < 10 警示",
                     evidence=f"持股 {hold_vol/1e4:.1f}万股 / 年薪 {reward/1e4:.1f}万元",
                     implication=impl,
+                    plain_title=f"{latest_ceo['name']}持股 {hold_vol/1e4:.1f} 万股、年薪 {reward/1e4:.1f} 万元",
+                    plain_note=impl.replace("，", ","),
                 ))
+    return flags
+
+
+# 名义持有人: 替别人持股的通道账户, 它们的增减是**底层投资者**在买卖, 不是公司内部人的动作。
+#   · 香港中央结算有限公司 = 陆股通(北向)A 股的名义持有人;
+#   · 香港中央结算(代理人)有限公司 / HKSCC NOMINEES LIMITED = H 股的名义持有人;
+#   · 中国证券金融股份有限公司 = 证金(稳市场资金), 不是产业方。
+# 立讯 002475 2026-09-30 实测: 「前十大股东减持 7,761 万股」里 7,327 万股是香港中央结算,
+# 控股股东零变动, 却被当成治理红旗上了增量复查的「新增红旗」(v8.15 F)。
+NOMINEE_HOLDER_PATTERNS = ("香港中央结算", "HKSCC", "中国证券金融")
+NORTHBOUND_HOLDER = "香港中央结算有限公司"
+# 财务投资者 = 基金/保险/社保/养老金/银行券商/QFII 自有资金账户等: 它们的调仓是资金面, 不是 Lynch 说的
+# 「内部人减持」。剩下的(控股股东、产业方、员工持股平台、自然人)才算内部人。
+# ⚠️ 不能按 holder_type 白名单只认「一般企业 / 自然人」: 中际旭创的控股股东(山东中际投资控股)、
+# 华特气体的三个员工持股平台在 Tushare 里都是「投资公司」—— 白名单会把真正的内部人漏掉。
+FINANCIAL_HOLDER_TYPE = re.compile(r"基金|保险|社保|养老|金融|证券|银行|QFII|信托|资产管理|理财|年金")
+FINANCIAL_HOLDER_NAME = re.compile(r"基金|保险|养老|社保|私募|资管|资产管理|信托|年金|理财|自有资金|QFII", re.I)
+
+
+def _is_nominee(name: str) -> bool:
+    squashed = re.sub(r"\s+", "", str(name or "")).upper()
+    return any(p.upper() in squashed for p in NOMINEE_HOLDER_PATTERNS)
+
+
+def _is_financial_investor(name: str, holder_type) -> bool:
+    if holder_type is not None and not (isinstance(holder_type, float) and math.isnan(holder_type)):
+        if FINANCIAL_HOLDER_TYPE.search(str(holder_type)):
+            return True
+    return bool(FINANCIAL_HOLDER_NAME.search(str(name or "")))
+
+
+def _top10_insider_selling(bundle: dict) -> list[RedFlag]:
+    """前十大股东减持(治理)+ 北向持股变动(资金面, ℹ️)。
+
+    旧规则把最新一期所有 hold_change<0 的行相加 —— 名为「净减持」, 实为毛减持, 而且把
+    北向(香港中央结算)、财务投资者的调仓一并算成「内部人减持」。现在:
+      ① 剔除名义持有人(NOMINEE_HOLDER_PATTERNS);
+      ② 再剔除财务投资者(_is_financial_investor), 剩下的内部人增减相抵算**净**变动, 净减持 > 100 万股才报;
+      ③ 北向那一行若变动 ≥ 总股本 0.5%, 另出一条 ℹ️ 资金面提示(归股东结构, 不归治理)。
+    """
+    flags: list[RedFlag] = []
+    th = bundle.get("top10_holders", pd.DataFrame())
+    if th is None or th.empty or "hold_change" not in th.columns or "end_date" not in th.columns:
+        return flags
+    th = th.copy()
+    th["end_date"] = th["end_date"].astype(str)
+    latest_period = th["end_date"].max()
+    recent = th[th["end_date"] == latest_period].copy()
+    if "ann_date" in recent.columns:            # 同一期多次披露(更正公告)取最后一次
+        recent = recent.sort_values("ann_date").drop_duplicates("holder_name", keep="last")
+    recent["chg_"] = pd.to_numeric(recent["hold_change"], errors="coerce").fillna(0.0)
+    names = recent["holder_name"].astype(str)
+    nominee = names.map(_is_nominee)
+    types = recent["holder_type"] if "holder_type" in recent.columns else pd.Series(None, index=recent.index)
+    financial = pd.Series(
+        [_is_financial_investor(n, t) for n, t in zip(names, types)], index=recent.index
+    )
+    insiders = recent[~nominee & ~financial]
+
+    # 持股是**期末时点**数, hold_change 是较上一期的变动 —— 不是「年内累计」, 别套报告期累计的说法
+    period_txt = f"{period_iso(latest_period)} 期末较上一期,"
+    when = f"{period_iso(latest_period)} 较上期"
+    net = float(insiders["chg_"].sum())
+    if net < -1_000_000:                         # 内部人净减持超过 100 万股
+        sellers = insiders[insiders["chg_"] < 0].sort_values("chg_")
+        who = "、".join(f"{r.holder_name} {r.chg_ / 1e4:,.0f} 万股" for r in sellers.head(3).itertuples())
+        flags.append(RedFlag(
+            framework="Governance",
+            signal="前十大股东减持",
+            severity="🟡 中",
+            value=int(abs(net)),
+            threshold="前十大里内部人(控股股东/产业方/持股平台/自然人)净减持 > 100 万股;已剔除北向等名义持有人与基金保险等财务投资者",
+            evidence=f"{period_txt}内部人净减持 {abs(net) / 1e4:,.0f} 万股({who})",
+            implication="内部人士减持是最重要的负面信号之一（Lynch）",
+            plain_title=f"大股东与产业方净减持 {abs(net) / 1e4:,.0f} 万股({when})",
+            plain_note=f"减持方:{who};控股股东或产业资本在卖,是最值得警惕的信号之一",
+        ))
+
+    north = recent[names == NORTHBOUND_HOLDER]
+    if not north.empty:
+        chg = float(north["chg_"].iloc[0])
+        total_share = None
+        db = bundle.get("daily_basic", pd.DataFrame())
+        if db is not None and not db.empty and "total_share" in db.columns:
+            total_share = _safe_float(db.sort_values("trade_date").iloc[-1].get("total_share"))
+        share_pct = abs(chg) / (total_share * 1e4) if total_share else None   # total_share 单位万股
+        if chg and share_pct is not None and share_pct >= 0.005:
+            verb = "增持" if chg > 0 else "减持"
+            flags.append(RedFlag(
+                framework="Shareholder Flow",
+                signal="北向资金持股变动",
+                severity="ℹ️ 信息",
+                value=int(chg),
+                threshold="陆股通(香港中央结算)单期变动 ≥ 总股本 0.5% 提示",
+                evidence=f"{period_txt}香港中央结算{verb} {abs(chg) / 1e4:,.0f} 万股(约占总股本 {share_pct:.2%})",
+                implication="北向是名义持有人, 变动反映外资仓位, 属资金面信号, 不是公司治理问题",
+                plain_title=f"北向资金{verb} {abs(chg) / 1e4:,.0f} 万股({when})",
+                plain_note=f"约占总股本 {share_pct:.2%};这是外资仓位变化,属资金面信号,不是公司治理问题",
+            ))
     return flags
 
 
@@ -695,7 +851,16 @@ def _shareholder_flow(bundle: dict) -> list[RedFlag]:
     sn = bundle.get("stk_holdernumber", pd.DataFrame())
     if sn.empty or "holder_num" not in sn.columns:
         return flags
-    sn = sn.drop_duplicates(subset=["end_date"]).sort_values("end_date").tail(4)
+    # 先丢掉户数为空的行, 再按 end_date 去重(同一期多次披露取**最后一次**公告):
+    # Tushare 会给只有公告日、没有户数的占位行(立讯 2026-07-31 / 08-10 / 09-06 / 09-18 / 10-20 全是 NaN),
+    # 旧写法 tail(4) 取到它们 → 最新一期户数 = 0 → 两条规则静默不触发, 增量复查把
+    # 「长期户数上升」报成「解除」, 而④正文写着 5 月末→9 月末 +40.1%(v8.15 D4)。
+    sn = sn.copy()
+    sn["holder_num"] = pd.to_numeric(sn["holder_num"], errors="coerce")
+    sn = sn[sn["holder_num"] > 0]
+    sn["end_date"] = sn["end_date"].astype(str)
+    order = ["end_date", "ann_date"] if "ann_date" in sn.columns else ["end_date"]
+    sn = sn.sort_values(order).drop_duplicates(subset=["end_date"], keep="last").tail(4)
     if len(sn) < 2:
         return flags
 
@@ -723,6 +888,12 @@ def _shareholder_flow(bundle: dict) -> list[RedFlag]:
             threshold="户数变化方向作为资金流向信号",
             evidence=f"{prev['end_date']}: {int(n_prev)} → {cur['end_date']}: {int(n_cur)}（{change_pct:+.1%}）",
             implication=impl,
+            plain_title=(f"股东户数{'增加' if change_pct > 0 else '减少'} {abs(change_pct):.1%}"
+                         if direction != "→" else "股东户数基本持平")
+                        + f"({period_iso(prev['end_date'])} → {period_iso(cur['end_date'])})",
+            plain_note=("新进散户增多,股价拉升后往往伴随高位接盘风险" if direction == "↑" else
+                        "散户在离场,筹码向机构或大户集中" if direction == "↓" else
+                        "户数变化温和,没有方向性信号"),
         ))
 
     # 趋势判断
@@ -734,9 +905,12 @@ def _shareholder_flow(bundle: dict) -> list[RedFlag]:
                 signal="长期户数下降（筹码集中）",
                 severity="🟢 低",
                 value=int(all_num[-1]),
-                threshold="一年内户数下降 > 20%",
+                threshold="近四次披露户数下降 > 20%(跨度见证据)",
                 evidence=f"{sn.iloc[0]['end_date']}: {int(all_num[0])} → {sn.iloc[-1]['end_date']}: {int(all_num[-1])}",
                 implication="筹码向机构/大户集中，可能存在布局信号",
+                plain_title=f"股东户数累计减少 {1 - all_num[-1] / all_num[0]:.0%}"
+                            f"({period_iso(sn.iloc[0]['end_date'])} → {period_iso(sn.iloc[-1]['end_date'])})",
+                plain_note="筹码在向机构或大户集中",
             ))
         elif all_num[-1] > all_num[-4] * 1.2:
             flags.append(RedFlag(
@@ -744,9 +918,12 @@ def _shareholder_flow(bundle: dict) -> list[RedFlag]:
                 signal="长期户数上升（筹码分散）",
                 severity="🟡 中",
                 value=int(all_num[-1]),
-                threshold="一年内户数上升 > 20%",
+                threshold="近四次披露户数上升 > 20%(跨度见证据)",
                 evidence=f"{sn.iloc[0]['end_date']}: {int(all_num[0])} → {sn.iloc[-1]['end_date']}: {int(all_num[-1])}",
                 implication="筹码分散，通常伴随股价拉升后的散户涌入，需警惕高位风险",
+                plain_title=f"股东户数累计增加 {all_num[-1] / all_num[0] - 1:.0%}"
+                            f"({period_iso(sn.iloc[0]['end_date'])} → {period_iso(sn.iloc[-1]['end_date'])})",
+                plain_note="筹码在分散,常见于股价拉升后散户涌入,要警惕高位接盘",
             ))
     return flags
 
@@ -777,6 +954,8 @@ def _forecast_anomaly(bundle: dict) -> list[RedFlag]:
             threshold="首亏/预亏/续亏 = 负面预告",
             evidence=f"{latest.get('ann_date')} 预告类型={ftype}，变动 {p_min}%~{p_max}%，净利下限 {_safe_float(latest.get('net_profit_min'))}万",
             implication="管理层主动披露亏损警示，比财报更即时",
+            plain_title=f"业绩预告:{ftype}",
+            plain_note="管理层自己预告亏损,比正式财报来得更早",
         ))
     elif any(k in ftype for k in ["略减", "预减"]):
         flags.append(RedFlag(
@@ -787,6 +966,8 @@ def _forecast_anomaly(bundle: dict) -> list[RedFlag]:
             threshold="预减 = 边际负面",
             evidence=f"{latest.get('ann_date')} 预告类型={ftype}，变动 {p_min}%~{p_max}%",
             implication="盈利能力下滑，需关注是否一次性还是持续",
+            plain_title=f"业绩预告:{ftype}",
+            plain_note="管理层自己预告利润下滑,要分清是一次性还是会持续",
         ))
 
     # 预告区间过宽
@@ -801,6 +982,8 @@ def _forecast_anomaly(bundle: dict) -> list[RedFlag]:
                 threshold="区间宽度 > 50pp",
                 evidence=f"最新预告区间宽度 {width}pp",
                 implication="管理层对下期业绩不确定性大，可能预示波动",
+                plain_title=f"业绩预告上下限相差 {width:.0f} 个百分点",
+                plain_note="管理层自己也看不准下一期,业绩波动可能大",
             ))
     return flags
 
@@ -838,6 +1021,8 @@ def _valuation(bundle: dict) -> list[RedFlag]:
             threshold="TTM 净利 > 0",
             evidence=f"{trade_date} pe_ttm 缺失 = 过去 12 个月累计亏损",
             implication="公司处于亏损状态，PE 估值方法不适用；应看 PB / PS / EV-EBITDA",
+            plain_title="过去 12 个月累计亏损,市盈率算不出来",
+            plain_note="亏损期不能用市盈率估值,要看市净率、市销率",
         ))
 
     # 2. PB 历史分位数（3 年）
@@ -861,6 +1046,9 @@ def _valuation(bundle: dict) -> list[RedFlag]:
                 threshold=">80% 分位警示 / <20% 可能机会",
                 evidence=f"当前 PB={pb:.2f}，近 1 年范围 [{pb_series.min():.2f}, {pb_series.max():.2f}]",
                 implication=impl,
+                plain_title=f"市净率 {pb:.2f} 倍,处于近一年 {pct:.0%} 分位",
+                plain_note=f"近一年市净率在 {pb_series.min():.2f}~{pb_series.max():.2f} 倍之间,"
+                           + ("现在偏高" if pct > 0.6 else "现在偏低" if pct < 0.2 else "现在居中"),
             ))
 
     # 3. PB vs ROE 错配（Gordon 简化：PB 合理值 ≈ ROE/8%）
@@ -882,6 +1070,8 @@ def _valuation(bundle: dict) -> list[RedFlag]:
                     threshold="PB / 合理PB > 2 警示",
                     evidence=f"市净率 {pb:.2f} 倍;{basis},现价是它的 {pb/fair_pb:.1f} 倍",
                     implication=f"ROE={roe_latest:.1f}% 理论配 PB {fair_pb:.1f}x，当前 PB {pb:.2f}x 暗示市场透支预期",
+                    plain_title=f"市净率 {pb:.2f} 倍,是回报率撑得起的 {pb/fair_pb:.1f} 倍",
+                    plain_note=f"{basis},多出来的部分全靠市场预期兑现",
                 ))
             elif fair_pb > 0 and pb < fair_pb * 0.5:
                 flags.append(RedFlag(
@@ -892,6 +1082,8 @@ def _valuation(bundle: dict) -> list[RedFlag]:
                     threshold="PB / 合理PB < 0.5",
                     evidence=f"市净率 {pb:.2f} 倍;{basis},现价不到它的一半",
                     implication=f"ROE={roe_latest:.1f}% 配 PB {fair_pb:.1f}x，当前 {pb:.2f}x 被低估",
+                    plain_title=f"市净率 {pb:.2f} 倍,不到回报率撑得起的一半",
+                    plain_note=f"{basis},价格可能被低估",
                 ))
 
     # 4. PS 历史分位
@@ -908,6 +1100,8 @@ def _valuation(bundle: dict) -> list[RedFlag]:
                     threshold=">85% 分位警示",
                     evidence=f"当前 PS_TTM={ps_ttm:.2f}，处于近 1 年 {pct:.0%} 分位",
                     implication="营收估值倍数偏高，若增速不匹配需警惕回归",
+                    plain_title=f"市销率 {ps_ttm:.2f} 倍,处于近一年 {pct:.0%} 分位",
+                    plain_note="按收入算的估值在近一年高位,增速跟不上就会往回落",
                 ))
 
     # 5. 股息率（Graham 防御性）
@@ -921,6 +1115,8 @@ def _valuation(bundle: dict) -> list[RedFlag]:
                 threshold="< 0.5% 视为非防御性",
                 evidence=f"当前股息率 {dv_ratio:.2f}%",
                 implication="Graham 防御型投资需股息率 > 2%；当前股息不足以构成估值保护",
+                plain_title=f"股息率只有 {dv_ratio:.2f}%",
+                plain_note="分红几乎不构成估值保护,回报全靠股价",
             ))
         elif dv_ratio > 3.0:
             flags.append(RedFlag(
@@ -931,6 +1127,8 @@ def _valuation(bundle: dict) -> list[RedFlag]:
                 threshold="> 3% 具备防御性",
                 evidence=f"当前股息率 {dv_ratio:.2f}%",
                 implication="股息率高，估值回归时有保护",
+                plain_title=f"股息率 {dv_ratio:.2f}%",
+                plain_note="分红能在估值回落时提供一层保护",
             ))
 
     # 6. 市值 vs ROE 的综合警示（简化版"小盘高估"信号）
@@ -943,6 +1141,8 @@ def _valuation(bundle: dict) -> list[RedFlag]:
             threshold="市值 < 100 亿 + 亏损 + PB > 5",
             evidence=f"总市值 {total_mv/1e4:.1f}亿元，当前亏损，PB={pb:.2f}x",
             implication="小盘亏损股享受高 PB 溢价，通常来自概念/题材驱动，缺乏基本面支撑",
+            plain_title=f"市值 {total_mv/1e4:.0f} 亿、仍在亏损,市净率却有 {pb:.1f} 倍",
+            plain_note="亏损的小盘股享受高估值,多半是题材驱动,缺基本面支撑",
         ))
     return flags
 
@@ -952,32 +1152,54 @@ def _valuation(bundle: dict) -> list[RedFlag]:
 # ============================================================================
 
 def _related_party_exposure(bundle: dict) -> list[RedFlag]:
-    """长期股权投资波动 + 权益法损失 = 参股公司爆雷（实丰文化超隆光电案例）"""
+    """长期股权投资波动 + 权益法损失 = 参股公司爆雷（实丰文化超隆光电案例）
+
+    长期股权投资波动是**年末余额对年末余额**(年报对年报, 期别写在证据里);
+    投资收益 / 公允价值变动两条判的是「最新期」, 所以取**最新报告期**那一行(年内累计口径),
+    证据写明期别。旧写法三条都走 `_annual()` —— 立讯 002475 的公允价值变动取了 FY2025 年报行
+    (−6.19 亿)却写「最新期」, 而 2026 前三季度该项是 +5.50 亿, 这条错的红旗上了首页 Top3(v8.15 D1)。
+    最新期已转正就不触发。
+    """
     flags: list[RedFlag] = []
-    bs = _annual(bundle.get("balancesheet", pd.DataFrame()))
-    inc = _annual(bundle.get("income", pd.DataFrame()))
-    if len(bs) < 2 or len(inc) < 1:
-        return flags
-    b_now, b_prev = bs.iloc[-1], bs.iloc[-2]
-    y = inc.iloc[-1]
     def f(row, key): return _safe_float(row.get(key)) or 0
 
-    # 1. 长期股权投资大幅波动
-    lei_now, lei_prev = f(b_now, "lt_eqt_invest"), f(b_prev, "lt_eqt_invest")
-    if lei_prev and lei_now:
-        change = (lei_now - lei_prev) / lei_prev
-        if abs(change) > 0.3:
-            flags.append(RedFlag(
-                framework="Related-Party Exposure",
-                signal="长期股权投资大幅波动",
-                severity="🟠 高" if change < 0 else "🟡 中",
-                value=round(change, 3),
-                threshold="长期股权投资变动 > 30%",
-                evidence=f"{b_prev.get('end_date')}: {lei_prev/1e4:.0f}万 → {b_now.get('end_date')}: {lei_now/1e4:.0f}万（{change:+.1%}）",
-                implication="参股公司价值大幅波动，可能存在权益法爆雷风险（实丰文化超隆光电案例）",
-            ))
+    # 1. 长期股权投资大幅波动(年报对年报)
+    bs = _annual(bundle.get("balancesheet", pd.DataFrame()))
+    if len(bs) >= 2:
+        b_now, b_prev = bs.iloc[-1], bs.iloc[-2]
+        lei_now, lei_prev = f(b_now, "lt_eqt_invest"), f(b_prev, "lt_eqt_invest")
+        if lei_prev and lei_now:
+            change = (lei_now - lei_prev) / lei_prev
+            if abs(change) > 0.3:
+                flags.append(RedFlag(
+                    framework="Related-Party Exposure",
+                    signal="长期股权投资大幅波动",
+                    severity="🟠 高" if change < 0 else "🟡 中",
+                    value=round(change, 3),
+                    threshold="长期股权投资变动 > 30%",
+                    evidence=f"{b_prev.get('end_date')}: {lei_prev/1e4:.0f}万 → {b_now.get('end_date')}: {lei_now/1e4:.0f}万（{change:+.1%}）",
+                    implication="参股公司价值大幅波动，可能存在权益法爆雷风险（实丰文化超隆光电案例）",
+                    plain_title=f"长期股权投资一年{'增加' if change > 0 else '减少'} {abs(change):.0%}"
+                                f"({period_label(b_now.get('end_date'))})",
+                    plain_note="参股公司价值大幅波动,要防联营企业亏损拖累利润",
+                ))
 
-    # 2. 投资收益持续负值
+    # 2/3 判「最新期」: 最新报告期那一行(季报/半年报是年内累计)
+    income = bundle.get("income", pd.DataFrame())
+    y = _latest_period_row(income)
+    if y is None:
+        return flags
+    period = str(y.get("end_date"))
+    ann = _annual(income)
+    last_fy = ann.iloc[-1] if len(ann) and str(ann.iloc[-1].get("end_date")) != period else None
+
+    def _fy_ref(key: str) -> str:
+        """最新期不是年报时, 顺手给上一完整年度做参照(读者要能分清「今年」和「去年全年」)。"""
+        if last_fy is None:
+            return ""
+        return f";上一完整年度 {period_label(last_fy.get('end_date'))} 为 {f(last_fy, key)/1e8:.3f}亿"
+
+    # 2. 投资收益大额负值
     inv_inc = f(y, "invest_income")
     if inv_inc < -10_000_000:  # 小于 -1000 万
         flags.append(RedFlag(
@@ -985,9 +1207,11 @@ def _related_party_exposure(bundle: dict) -> list[RedFlag]:
             signal="投资收益大额负值",
             severity="🟠 高",
             value=inv_inc,
-            threshold="投资收益 < -1000 万",
-            evidence=f"最新期投资收益 {inv_inc/1e8:.3f}亿",
+            threshold="最新报告期(年内累计)投资收益 < -1000 万",
+            evidence=f"{_period_words(period)}投资收益 {inv_inc/1e8:.3f}亿{_fy_ref('invest_income')}",
             implication="参股公司权益法损失拖累，查 fina_mainbz 或 PDF 找源头",
+            plain_title=f"投资收益亏损 {abs(inv_inc)/1e8:.2f} 亿({period_label(period)})",
+            plain_note="参股公司或理财在亏钱,直接拖累利润,要查清是哪一笔",
         ))
 
     # 3. 公允价值变动大额负值
@@ -998,9 +1222,11 @@ def _related_party_exposure(bundle: dict) -> list[RedFlag]:
             signal="公允价值变动大额负值",
             severity="🟠 高",
             value=fv_chg,
-            threshold="公允价值变动 < -1000 万",
-            evidence=f"最新期公允价值变动 {fv_chg/1e8:.3f}亿",
+            threshold="最新报告期(年内累计)公允价值变动 < -1000 万",
+            evidence=f"{_period_words(period)}公允价值变动 {fv_chg/1e8:.3f}亿{_fy_ref('fv_value_chg_gain')}",
             implication="或有对价冲回 / 金融资产重估；需查明具体来源",
+            plain_title=f"公允价值变动亏损 {abs(fv_chg)/1e8:.2f} 亿({period_label(period)})",
+            plain_note="金融资产重估或或有对价冲回造成的账面损失,要查明来源",
         ))
     return flags
 

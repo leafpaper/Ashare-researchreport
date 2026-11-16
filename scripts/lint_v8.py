@@ -224,8 +224,14 @@ def rule_red_flag_closure(
             fails.append(f"Top3 漂移:装配产物 {got} vs 重算 {want}(Top3 由机器带出, 不许人工挑)")
 
     for flag in flags:
-        if flag["level"] not in ("🔴", "🟠"):
-            continue
+        if flag.get("supersedes_missing"):
+            # 更正通道的过期指针: 被更正的那条脚本红旗本期已不触发(数据刷新/规则修正后常见)
+            warns.append(
+                f"提名「{flag['title']}」({flag['id']})的 supersedes={flag.get('supersedes')!r} "
+                "指向的脚本红旗本期没有触发 —— 删掉这个字段(更正对象已不存在)"
+            )
+        if flag["level"] not in ("🔴", "🟠") or flag.get("superseded_by"):
+            continue                       # 被提名更正的脚本条由更正它的那条提名负责叙述
         home = flag["node"]
         tokens = flag_tokens(flag)
         if _mentions(bodies.get(home, ""), tokens):

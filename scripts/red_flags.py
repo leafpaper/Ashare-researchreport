@@ -12,8 +12,21 @@
 
 **分组**: 同一「首要关联指标」(metric_refs[0])的多条红旗视为一个风险, 合并成 Top3 的一条
 (05 推演:脚本商誉规则 + 写手「对赌未披露」提名 = 一条商誉风险), 无 metric_refs 的条目自成一组。
-**Top3 排序**: (级别 → 组内条数多者优先 → 归属节点 path>odds>quality>state → 清单出现序);
+**Top3 排序**: (级别 → 组内 🔴/🟠/🟡 条数多者优先 → 归属节点 path>odds>quality>state → 清单出现序);
 东山推演对照见 research/02 §6 与 research/05 §2(见 .scratch/v8-implementation/issues/04)。
+
+**更正通道 supersedes(v8.15)**: 提名条目可带 `supersedes: <脚本红旗 id>`, 声明「这条脚本红旗判错了/
+期别不对, 以我为准」。被更正的脚本条**留在附录D**(标明被哪条更正), 但不再参与 Top3 的代表与排序、
+不再上红标。此前写手想纠正脚本条只能补一条同组提名 —— 而同级时组代表恒取列表首个(脚本在前),
+提名抢不到首页那句证据;排序键又数组内条数, 补一条(哪怕 🟢)反而给那条风险提级(立讯 09-18/11-13 实测)。
+现在更正走 supersedes(被更正的脚本条退出分组, 提名顶替它, 条数不变);组内条数也只数 🔴/🟠/🟡
+且未被更正的条目 —— 🟢/ℹ️ 不是风险, 不给组凑条数(旧版连「PB 历史分位:中性 ℹ️」都在给「PB 与回报率
+错配 🟠」凑条数, 中际旭创/华特的估值条因此常年排第一)。
+🔴 致命红旗不能被更正(封顶规则是硬规则, 判错了就改 audit 规则)。
+
+**读者向展示**: 脚本红旗的 title 是规则名/公式串(「Z=2.837」), 首页 Top3 卡用 audit 产的人话
+`display_title` + 一句后果 `display_note`(financial_audit 的 plain_title/plain_note)。
+**id 来源不变**(framework + signal 骨架), 已发布报告节点 YAML 里的引用不受影响。
 
 CLI(P1 采集尾巴, 产 red_flags.json 供写手引用 id):
   python -m scripts.red_flags --audit-json output/{c}/audit_report.json --out output/{c}/red_flags.json
@@ -77,6 +90,7 @@ SIGNAL_MAP = {
     "股息率": ("odds", ["dividend_yield"]),
     "PE_TTM": ("odds", ["pe"]),
     "小盘亏损 + 高 PB 双杀": ("odds", ["pb"]),
+    "北向资金持股变动": ("path", ["northbound"]),
 }
 
 
@@ -136,7 +150,7 @@ def normalize_audit(audit: dict | list) -> list[dict]:
         framework = str(entry.get("framework", "")).strip() or "Audit"
         signal = str(entry.get("signal", "")).strip() or "未命名信号"
         node, metrics = _home_of(framework, signal)
-        items.append({
+        item = {
             "id": flag_id(framework, signal),
             "level": _level_of(entry.get("severity", "")),
             "title": signal,
@@ -149,8 +163,30 @@ def normalize_audit(audit: dict | list) -> list[dict]:
             "threshold": entry.get("threshold"),
             "implication": entry.get("implication"),
             "value": entry.get("value"),
-        })
+        }
+        # 读者向展示(v8.15): 老 audit JSON 没有这两个字段 → 不写, 展示层退回 title/evidence
+        plain_title = str(entry.get("plain_title") or "").strip()
+        plain_note = str(entry.get("plain_note") or "").strip()
+        if plain_title:
+            item["display_title"] = plain_title
+        if plain_note:
+            item["display_note"] = plain_note
+        items.append(item)
     return items
+
+
+def display_title(flag: dict) -> str:
+    """读者看到的红旗标题: 脚本条用 audit 的人话标题, 提名条本来就是人话。"""
+    return flag.get("display_title") or flag.get("title") or flag.get("id", "")
+
+
+def display_note(flag: dict) -> str:
+    """读者看到的那句话: 脚本条用「一句后果」, 没有就退回证据原文。"""
+    return flag.get("display_note") or flag.get("evidence") or ""
+
+
+def is_superseded(flag: dict) -> bool:
+    return bool(flag.get("superseded_by"))
 
 
 def collect_nominations(node_blocks: dict[str, dict]) -> list[dict]:
@@ -169,7 +205,12 @@ def collect_nominations(node_blocks: dict[str, dict]) -> list[dict]:
 
 
 def merge(script_flags: list[dict], nominations: list[dict]) -> list[dict]:
-    """两源同池合并 → 附录D 清单。脚本在前、提名在后; id 冲突即报错(一条红旗一处归家)。"""
+    """两源同池合并 → 附录D 清单。脚本在前、提名在后; id 冲突即报错(一条红旗一处归家)。
+
+    提名的 `supersedes` 在这里落地: 被更正的脚本条拷一份并标 `superseded_by`(不改调用方的原对象)。
+    指向不存在的 id 不报错(数据刷新后脚本条可能已经不触发了, 比如 v8.15 修掉的公允价值期别错),
+    只在提名条上记 `supersedes_missing=True`, lint 会提示写手删掉这个过期指针。
+    """
     merged: list[dict] = []
     seen: dict[str, dict] = {}
     for flag in list(script_flags) + list(nominations):
@@ -184,6 +225,32 @@ def merge(script_flags: list[dict], nominations: list[dict]) -> list[dict]:
             raise RedFlagError(f"红旗 {fid} 归属节点非法: {flag.get('node')!r}")
         seen[fid] = flag
         merged.append(flag)
+
+    index = {f["id"]: i for i, f in enumerate(merged)}
+    for i, flag in enumerate(list(merged)):
+        target = flag.get("supersedes")
+        if not target:
+            continue
+        if flag.get("source") != "nomination":
+            raise RedFlagError(f"红旗 {flag['id']}: 只有写手提名能用 supersedes 更正脚本红旗")
+        if target not in index:
+            merged[i] = dict(flag, supersedes_missing=True)
+            continue
+        old = merged[index[target]]
+        if old.get("source") != "script":
+            raise RedFlagError(
+                f"红旗 {flag['id']} 的 supersedes={target!r} 指向的是另一条提名 —— 只能更正脚本红旗"
+            )
+        if old.get("level") == "🔴":
+            raise RedFlagError(
+                f"红旗 {flag['id']} 想更正 🔴 致命红旗 {target}:封顶规则是硬规则, "
+                "致命红旗判错了要改 financial_audit 规则, 不能用提名覆盖"
+            )
+        if old.get("superseded_by"):
+            raise RedFlagError(
+                f"脚本红旗 {target} 被两条提名同时更正({old['superseded_by']} / {flag['id']}),只能留一条"
+            )
+        merged[index[target]] = dict(old, superseded_by=flag["id"])
     return merged
 
 
@@ -199,9 +266,16 @@ def group_key(flag: dict) -> str:
 
 
 def group_flags(flags: list[dict]) -> list[dict]:
-    """按首要关联指标聚成风险组, 保持首次出现序。组级 level = 组内最严重。"""
+    """按首要关联指标聚成风险组, 保持首次出现序。组级 level = 组内最严重。
+
+    被提名更正的脚本条(superseded_by)不进任何组 —— 它不再代表风险, 也不给组凑条数。
+    size = 组内 🔴/🟠/🟡 的条数: 🟢/ℹ️ 的说明条目(不论脚本还是提名)不给组提级(v8.15 D2)。
+    同级的独立佐证仍然加分(05 推演:脚本商誉规则 + 写手「对赌未披露」= 两条证据指向同一风险)。
+    """
     groups: dict[str, dict] = {}
     for idx, flag in enumerate(flags):
+        if is_superseded(flag):
+            continue
         key = group_key(flag)
         g = groups.get(key)
         if g is None:
@@ -216,7 +290,8 @@ def group_flags(flags: list[dict]) -> list[dict]:
             "flags": g["flags"],
             "representative": rep,
             "level": rep["level"],
-            "size": len(g["flags"]),
+            "size": (sum(1 for f in g["flags"] if f["level"] in MARKED_LEVELS)
+                     if rep["level"] in MARKED_LEVELS else len(g["flags"])),
             "node": rep["node"],
             "first_index": g["first_index"],
         })
@@ -246,8 +321,9 @@ def top3(flags: list[dict]) -> list[dict]:
             "rank": rank,
             "red_flag_id": rep["id"],
             "level": rep["level"],
-            "title": rep["title"],
-            "evidence": rep["evidence"],
+            # 首页卡片用读者向文字: 脚本条 = 人话标题 + 一句后果(「Z=2.837」+ 公式串不上首页, v8.15 D2)
+            "title": display_title(rep),
+            "evidence": display_note(rep),
             # 扩展字段: 供 lint 做红旗闭环机检 / HTML 层跳转
             "red_flag_ids": [f["id"] for f in g["flags"]],
             "node": rep["node"],
@@ -269,8 +345,8 @@ def _mark_entry(flags: list[dict]) -> dict | None:
             {
                 "id": f["id"],
                 "level": f["level"],
-                "title": f["title"],
-                "evidence": f["evidence"],
+                "title": display_title(f),
+                "evidence": display_note(f),
                 "source": f["source"],
                 "node": f["node"],
                 "anchor": anchor(f["id"]),
@@ -295,6 +371,8 @@ def red_mark_map(flags: list[dict], indicators: list[dict] | None = None) -> dic
     by_id = {f["id"]: f for f in flags}
     per_metric: dict[str, list[dict]] = {}
     for flag in flags:
+        if is_superseded(flag):            # 已被更正的脚本条不再给指标上红标
+            continue
         for metric in flag.get("metric_refs") or []:
             per_metric.setdefault(metric, []).append(flag)
 

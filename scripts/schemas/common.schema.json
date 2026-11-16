@@ -13,7 +13,28 @@
         "evidence": { "type": "string", "minLength": 1 },
         "source": { "enum": ["script", "nomination"] },
         "node": { "enum": ["quality", "state", "odds", "path"] },
-        "metric_refs": { "type": "array", "items": { "type": "string" } }
+        "metric_refs": { "type": "array", "items": { "type": "string" } },
+        "supersedes": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "description": "只用于写手提名:被本条更正的脚本红旗 id(脚本判错/期别不对)。被更正的脚本条留在附录D 并注明,不再进首页 Top3、不再上红标;🔴 不能被更正"
+        },
+        "superseded_by": {
+          "type": "string",
+          "description": "装配写入(写手别填):本脚本条已被哪条提名更正"
+        },
+        "supersedes_missing": {
+          "type": "boolean",
+          "description": "装配写入(写手别填):supersedes 指向的脚本红旗本期没有触发(过期指针)"
+        },
+        "display_title": {
+          "type": "string",
+          "description": "脚本红旗的读者向标题(financial_audit plain_title);不进 id"
+        },
+        "display_note": {
+          "type": "string",
+          "description": "脚本红旗的一句后果(financial_audit plain_note);不进 id"
+        }
       }
     },
     "panel_indicator": {
